@@ -1,0 +1,149 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "coglayer"
+version = "0.1.0"
+description = "Provider-agnostic cognitive coaching layer."
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "pydantic>=2.0,<3.0",
+    "pydantic-settings>=2.0,<3.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "ruff>=0.6,<1.0",
+    "mypy>=1.11,<2.0",
+    "pytest>=8.0,<9.0",
+    "pytest-cov>=5.0,<6.0",
+    "hypothesis>=6.0,<7.0",
+    "import-linter>=2.0,<3.0",
+    "pre-commit>=3.0,<4.0",
+    "pip-audit>=2.0,<3.0",
+]
+
+# ---------------------------------------------------------------------------
+# Ruff
+# ---------------------------------------------------------------------------
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = [
+    "F",      # pyflakes
+    "E", "W", # pycodestyle
+    "I",      # isort
+    "N",      # pep8-naming
+    "UP",     # pyupgrade
+    "B",      # bugbear
+    "A",      # builtins shadowing
+    "S",      # bandit-style security
+    "T20",    # print statements
+    "RUF",    # ruff-specific
+]
+ignore = [
+    "S101",   # allow assert in tests
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = ["S101"]
+
+# ---------------------------------------------------------------------------
+# mypy
+# ---------------------------------------------------------------------------
+[tool.mypy]
+python_version = "3.12"
+strict = true
+files = ["src/", "tests/"]
+plugins = ["pydantic.mypy"]
+
+[[tool.mypy.overrides]]
+module = "tests.*"
+disallow_untyped_defs = false
+
+# ---------------------------------------------------------------------------
+# pytest
+# ---------------------------------------------------------------------------
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = [
+    "--strict-markers",
+    "--cov=coglayer",
+    "--cov-report=term-missing",
+    "--cov-fail-under=85",
+]
+
+# ---------------------------------------------------------------------------
+# import-linter
+# ---------------------------------------------------------------------------
+[tool.importlinter]
+root_packages = ["coglayer"]
+
+# Contract (a): core must not import any other coglayer module
+[[tool.importlinter.contracts]]
+name = "core is independent"
+type = "forbidden"
+source_modules = ["coglayer.core"]
+forbidden_modules = [
+    "coglayer.providers",
+    "coglayer.signals",
+    "coglayer.profile",
+    "coglayer.coach",
+    "coglayer.exercises",
+    "coglayer.privacy",
+    "coglayer.sim",
+    "coglayer.api",
+    "coglayer.ui",
+]
+
+# Contract (b): domain modules are independent of each other
+[[tool.importlinter.contracts]]
+name = "domain modules are independent"
+type = "independence"
+modules = [
+    "coglayer.providers",
+    "coglayer.signals",
+    "coglayer.profile",
+    "coglayer.coach",
+    "coglayer.exercises",
+    "coglayer.privacy",
+    "coglayer.sim",
+]
+
+# Contract (c): domain modules must not import api or ui
+[[tool.importlinter.contracts]]
+name = "domain modules do not import composition layer"
+type = "forbidden"
+source_modules = [
+    "coglayer.providers",
+    "coglayer.signals",
+    "coglayer.profile",
+    "coglayer.coach",
+    "coglayer.exercises",
+    "coglayer.privacy",
+    "coglayer.sim",
+]
+forbidden_modules = [
+    "coglayer.api",
+    "coglayer.ui",
+]
+
+# Contract (d): ui must not import domain modules (only core allowed)
+[[tool.importlinter.contracts]]
+name = "ui talks to api, not domain modules"
+type = "forbidden"
+source_modules = ["coglayer.ui"]
+forbidden_modules = [
+    "coglayer.providers",
+    "coglayer.signals",
+    "coglayer.profile",
+    "coglayer.coach",
+    "coglayer.exercises",
+    "coglayer.privacy",
+    "coglayer.sim",
+]
