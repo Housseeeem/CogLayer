@@ -20,8 +20,8 @@ test:
 	uv run pytest
 
 secrets:
-	uv run pre-commit run gitleaks --all-files
 	uv run pre-commit run gitleaks-worktree --hook-stage manual
+	uv run pre-commit run gitleaks-history --hook-stage manual
 
 audit:
 	uv export --format requirements-txt --no-emit-project --frozen --output-file requirements-audit.txt
