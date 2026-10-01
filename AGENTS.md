@@ -28,6 +28,8 @@ It is **non-clinical**: it never diagnoses anything.
    files or add features that were not requested.
 9. **A task is done only when `make check` passes** (section 6).
 10. **Ask when a requirement is ambiguous.** Do not guess silently.
+11. **Never skip hooks** (no `--no-verify`) **and never disable a check**
+    without an explicit instruction.
 
 ## 2. Architecture rules
 
@@ -114,6 +116,8 @@ Never skip, disable or loosen a check without an explicit instruction.
   focused.
 - Before finishing a task, output: what changed, which tests were added, the
   result of `make check`, and anything you were unsure about.
+- When reporting deviations, quote the exact prompt text you deviated from.
+  Never attribute instructions to the prompt that it does not contain.
 
 ## 8. Definition of done
 
