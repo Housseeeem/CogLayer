@@ -28,3 +28,11 @@ repos:
     rev: v8.18.4
     hooks:
       - id: gitleaks
+  - repo: local
+    hooks:
+      - id: gitleaks-worktree
+        name: gitleaks-worktree
+        entry: gitleaks detect --no-git -v
+        language: system
+        pass_filenames: false
+        stages: [manual]

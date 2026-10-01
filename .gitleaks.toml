@@ -1,0 +1,11 @@
+[extend]
+useDefault = true
+
+[allowlist]
+paths = [
+    '''.*\.venv.*''',
+    '''.*\.mypy_cache.*''',
+    '''.*\.pytest_cache.*''',
+    '''.*\.ruff_cache.*''',
+    '''.*\.import_linter_cache.*'''
+]
