@@ -45,6 +45,9 @@ coverage.xml
 # Generated audit file
 requirements-audit.txt
 
+# SQLite databases
+*.db
+
 # OS
 .DS_Store
 Thumbs.db

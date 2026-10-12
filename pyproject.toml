@@ -24,6 +24,24 @@ dev = [
     "pre-commit>=3.0,<4.0",
     "pip-audit>=2.0,<3.0",
 ]
+api = [
+    "fastapi>=0.111,<1.0",
+    "uvicorn>=0.30,<1.0",
+    "httpx>=0.27,<1.0",
+]
+ui = [
+    "streamlit>=1.35,<2.0",
+    "httpx>=0.27,<1.0",
+]
+profile = [
+    "scipy>=1.13,<2.0",
+]
+all = [
+    "coglayer[api]",
+    "coglayer[ui]",
+    "coglayer[profile]",
+    "coglayer[dev]",
+]
 
 # ---------------------------------------------------------------------------
 # Ruff
@@ -53,6 +71,9 @@ ignore = [
 [tool.ruff.lint.per-file-ignores]
 "tests/**/*.py" = ["S101"]
 
+[tool.ruff.format]
+line-ending = "lf"
+
 # ---------------------------------------------------------------------------
 # mypy
 # ---------------------------------------------------------------------------
@@ -65,6 +86,11 @@ plugins = ["pydantic.mypy"]
 [[tool.mypy.overrides]]
 module = "tests.*"
 disallow_untyped_defs = false
+disallow_any_generics = false
+
+[[tool.mypy.overrides]]
+module = "scipy.*"
+ignore_missing_imports = true
 
 # ---------------------------------------------------------------------------
 # pytest

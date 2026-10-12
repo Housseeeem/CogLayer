@@ -127,3 +127,16 @@ Never skip, disable or loosen a check without an explicit instruction.
 - [ ] No secrets, no raw user text in logs or storage
 - [ ] Docs updated if behavior or configuration changed
 - [ ] Module boundaries respected
+
+
+## 9. Tooling rules
+
+- Use `uv run <command>` for every Python invocation (pytest, mypy, ruff, etc.).
+  Never run `pip install` globally.
+- Shell is Windows PowerShell. Use `;` to chain commands, not `&&`.
+  Never use `&&`, `head/tail`, or bash-only constructs.
+- Use `Select-Object -First N` or `-Last N` instead of `head`/`tail`.
+- Dates: use `datetime.now(timezone.utc)` or `datetime(…, tzinfo=timezone.utc)`.
+  Never call `datetime.utcnow()` (deprecated, returns naive datetime).
+
+- No helper scripts in the repo root; edits via the edit tool; never reuse INSERT OR REPLACE on tables that have cascading foreign keys.
