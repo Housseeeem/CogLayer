@@ -131,45 +131,6 @@ def test_update_session_status(tmp_path: pathlib.Path) -> None:
     assert loaded.status == SessionStatus.IN_PROGRESS
 
 
-def test_get_sessions_by_user(tmp_path: pathlib.Path) -> None:
-    """get_sessions_by_user returns all sessions for user ordered by start_time."""
-    repo = SQLiteAssessmentRepository(str(tmp_path / "test.db"))
-    assert repo.get_sessions_by_user("alice") == []
-
-    sess1 = Session(
-        session_id="s1",
-        user_id="alice",
-        start_time=TIMESTAMP,
-        end_time=None,
-        status=SessionStatus.PENDING,
-        completed_tasks=[],
-    )
-    sess2 = Session(
-        session_id="s2",
-        user_id="alice",
-        start_time=TIMESTAMP.replace(hour=11),
-        end_time=None,
-        status=SessionStatus.PENDING,
-        completed_tasks=[],
-    )
-    sess3 = Session(
-        session_id="s3",
-        user_id="bob",
-        start_time=TIMESTAMP,
-        end_time=None,
-        status=SessionStatus.PENDING,
-        completed_tasks=[],
-    )
-    repo.save_session(sess1)
-    repo.save_session(sess2)
-    repo.save_session(sess3)
-
-    alice_sessions = repo.get_sessions_by_user("alice")
-    assert len(alice_sessions) == 2
-    assert [s.session_id for s in alice_sessions] == ["s1", "s2"]
-    assert len(repo.get_sessions_by_user("bob")) == 1
-
-
 def test_ac_storage_raw_trials_retained(tmp_path: pathlib.Path) -> None:
     """REQ-011 test_ac_storage_raw_trials_retained.
 

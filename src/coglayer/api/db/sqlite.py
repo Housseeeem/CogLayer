@@ -152,25 +152,6 @@ class SQLiteAssessmentRepository:
             completed_tasks=json.loads(row["completed_tasks"]),
         )
 
-    def get_sessions_by_user(self, user_id: str) -> list[Session]:
-        """Return all sessions for a given user ordered by start_time."""
-        with _connect(self._db_path) as conn:
-            rows = conn.execute(
-                "SELECT * FROM sessions WHERE user_id = ? ORDER BY start_time",
-                (user_id,),
-            ).fetchall()
-        return [
-            Session(
-                session_id=row["session_id"],
-                user_id=row["user_id"],
-                start_time=_str_to_dt(row["start_time"]),
-                end_time=_str_to_dt(row["end_time"]) if row["end_time"] else None,
-                status=SessionStatus(row["status"]),
-                completed_tasks=json.loads(row["completed_tasks"]),
-            )
-            for row in rows
-        ]
-
     def update_session_status(self, session_id: str, status: SessionStatus) -> None:
         """Update the status field of an existing session."""
         with _connect(self._db_path) as conn:

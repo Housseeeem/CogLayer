@@ -185,10 +185,6 @@ class AssessmentRepository(Protocol):  # pragma: no cover
         """Retrieve a session by ID, or ``None`` if not found."""
         ...
 
-    def get_sessions_by_user(self, user_id: str) -> list[Session]:
-        """Retrieve all sessions for a user, or empty list if none."""
-        ...
-
     def update_session_status(self, session_id: str, status: SessionStatus) -> None:
         """Update the status field of an existing session."""
         ...
