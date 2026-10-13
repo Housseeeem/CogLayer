@@ -48,6 +48,15 @@ requirements-audit.txt
 # SQLite databases
 *.db
 
+# Generated docs (not source-controlled)
+docs/
+
+# Tools and IDE
+.kiro/
+.github/
+.hypothesis/
+.import_linter_cache/
+
 # OS
 .DS_Store
 Thumbs.db
