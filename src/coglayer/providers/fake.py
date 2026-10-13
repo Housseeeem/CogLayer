@@ -85,6 +85,6 @@ class FakeProvider:
 # Verify structural compatibility with LLMProvider at import time (no runtime
 # overhead — isinstance with a runtime_checkable Protocol is a static duck-type
 # check only).
-assert isinstance(
-    FakeProvider(), LLMProvider
-), "FakeProvider does not satisfy the LLMProvider Protocol"
+assert isinstance(FakeProvider(), LLMProvider), (
+    "FakeProvider does not satisfy the LLMProvider Protocol"
+)

@@ -254,13 +254,13 @@ def test_property8_delete_user_removes_all_data(user_suffix: str) -> None:
             ).fetchone()["cnt"]
 
             # Assert target user data completely removed
-            assert (
-                target_sessions_count == 0
-            ), f"target sessions: {target_sessions_count} rows remain"
+            assert target_sessions_count == 0, (
+                f"target sessions: {target_sessions_count} rows remain"
+            )
             assert target_trials_count == 0, f"target trials: {target_trials_count} rows remain"
-            assert (
-                target_metrics_count == 0
-            ), f"target task_metrics: {target_metrics_count} rows remain"
+            assert target_metrics_count == 0, (
+                f"target task_metrics: {target_metrics_count} rows remain"
+            )
             assert target_dq_count == 0, f"target data_quality: {target_dq_count} rows remain"
             assert target_profile_count == 0, f"target profiles: {target_profile_count} rows remain"
             assert target_consent_count == 0, f"target consent: {target_consent_count} rows remain"
@@ -270,16 +270,16 @@ def test_property8_delete_user_removes_all_data(user_suffix: str) -> None:
                 f"bystander sessions changed: {bystander_sessions_before} -> "
                 + f"{bystander_sessions_after}"
             )
-            assert (
-                bystander_trials_after == bystander_trials_before
-            ), f"bystander trials changed: {bystander_trials_before} -> {bystander_trials_after}"
+            assert bystander_trials_after == bystander_trials_before, (
+                f"bystander trials changed: {bystander_trials_before} -> {bystander_trials_after}"
+            )
             assert bystander_metrics_after == bystander_metrics_before, (
                 f"bystander metrics changed: {bystander_metrics_before} -> "
                 + f"{bystander_metrics_after}"
             )
-            assert (
-                bystander_dq_after == bystander_dq_before
-            ), f"bystander data_quality changed: {bystander_dq_before} -> {bystander_dq_after}"
+            assert bystander_dq_after == bystander_dq_before, (
+                f"bystander data_quality changed: {bystander_dq_before} -> {bystander_dq_after}"
+            )
             assert bystander_profile_after == bystander_profile_before, (
                 f"bystander profiles changed: {bystander_profile_before} -> "
                 + f"{bystander_profile_after}"
