@@ -49,11 +49,10 @@ requirements-audit.txt
 *.db
 
 # Generated docs (not source-controlled)
-docs/
+docs/DEVLOG.md
 
 # Tools and IDE
 .kiro/
-.github/
 .hypothesis/
 .import_linter_cache/
 
