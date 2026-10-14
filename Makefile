@@ -24,7 +24,7 @@ secrets:
 	uv run pre-commit run gitleaks-history --hook-stage manual
 
 audit:
-	uv export --format requirements-txt --no-emit-project --frozen --output-file requirements-audit.txt
+	uv export --format requirements-txt --no-emit-project --frozen --output-file requirements-audit.txt --all-extras
 	uv run pip-audit --require-hashes --no-deps -r requirements-audit.txt
 
 check: format lint typecheck arch test secrets audit
