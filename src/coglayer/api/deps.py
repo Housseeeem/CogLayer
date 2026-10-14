@@ -1,0 +1,119 @@
+"""Dependency injection providers for CogLayer FastAPI app.
+
+Provides injectable factories for repositories, services, registries,
+and coaches using FastAPI Depends.
+"""
+
+from __future__ import annotations
+
+from typing import Annotated
+
+from fastapi import Depends
+
+from coglayer.api.db.sqlite import (
+    SQLiteAssessmentRepository,
+    SQLiteConsentRepository,
+    SQLiteProfileRepository,
+)
+from coglayer.coach.coach import CognitiveCoach
+from coglayer.coach.decision import AdaptiveDecisionEngine
+from coglayer.core.protocols import (
+    AssessmentRepository,
+    ConsentRepository,
+    LLMProvider,
+    ProfileRepository,
+    ScoringAdapter,
+    TaskRegistry,
+)
+from coglayer.core.settings import Settings, get_settings
+from coglayer.privacy.consent import ConsentService
+from coglayer.profile.service import ProfileService
+from coglayer.providers.fake import FakeProvider
+from coglayer.signals.go_no_go import GoNoGoScorer
+from coglayer.signals.registry import build_default_registry
+from coglayer.signals.sequence_span import SequenceSpanScorer
+
+__all__ = [
+    "get_assessment_repo",
+    "get_coach",
+    "get_consent_repo",
+    "get_consent_service",
+    "get_db_settings",
+    "get_decision_engine",
+    "get_llm_provider",
+    "get_profile_repo",
+    "get_profile_service",
+    "get_scoring_adapters",
+    "get_task_registry",
+]
+
+
+def get_db_settings() -> Settings:
+    """Return runtime application settings."""
+    return get_settings()
+
+
+def get_assessment_repo(
+    settings: Annotated[Settings, Depends(get_db_settings)],
+) -> AssessmentRepository:
+    """Return an AssessmentRepository backed by SQLite."""
+    return SQLiteAssessmentRepository(settings.db_path)
+
+
+def get_profile_repo(
+    settings: Annotated[Settings, Depends(get_db_settings)],
+) -> ProfileRepository:
+    """Return a ProfileRepository backed by SQLite."""
+    return SQLiteProfileRepository(settings.db_path)
+
+
+def get_consent_repo(
+    settings: Annotated[Settings, Depends(get_db_settings)],
+) -> ConsentRepository:
+    """Return a ConsentRepository backed by SQLite."""
+    return SQLiteConsentRepository(settings.db_path)
+
+
+def get_consent_service(
+    repo: Annotated[ConsentRepository, Depends(get_consent_repo)],
+) -> ConsentService:
+    """Return a ConsentService wired to the consent repository."""
+    return ConsentService(repo)
+
+
+def get_task_registry() -> TaskRegistry:
+    """Return the default pre-populated TaskRegistry."""
+    return build_default_registry()
+
+
+def get_decision_engine() -> AdaptiveDecisionEngine:
+    """Return the AdaptiveDecisionEngine."""
+    return AdaptiveDecisionEngine()
+
+
+def get_coach() -> CognitiveCoach:
+    """Return the CognitiveCoach."""
+    return CognitiveCoach()
+
+
+def get_llm_provider(
+    settings: Annotated[Settings, Depends(get_db_settings)],
+) -> LLMProvider:
+    """Return the configured LLMProvider (defaults to FakeProvider)."""
+    # For MVP / tests, returns FakeProvider(seed=42)
+    return FakeProvider(seed=42)
+
+
+def get_profile_service(
+    settings: Annotated[Settings, Depends(get_db_settings)],
+) -> ProfileService:
+    """Return the ProfileService configured with the forgetting factor."""
+    return ProfileService(lambda_=settings.forgetting_factor)
+
+
+def get_scoring_adapters() -> dict[str, ScoringAdapter]:
+    """Return built-in task scoring adapters."""
+    return {
+        "go_no_go": GoNoGoScorer(),
+        "sequence_span": SequenceSpanScorer(),
+    }

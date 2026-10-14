@@ -5,35 +5,59 @@
 A provider-agnostic cognitive coaching layer that sits between a user and any
 LLM. It runs the loop **Assess → Understand → Coach → Improve** to build an
 uncertainty-aware cognitive profile, deliver explainable feedback, and generate
-adaptive exercises — all without clinical assessment or diagnosis.
+adaptive exercises.
 
-> **Non-clinical disclaimer:** CogLayer is an educational coaching tool. It does
-> not perform any form of medical or clinical assessment. It never diagnoses,
-> labels, or categorizes users in clinical terms.
+> **Non-clinical statement:** CogLayer is an educational and supportive coaching tool.
+> It does not perform any medical evaluation or clinical assessment.
 
-## Quick start
+## Quick Start
 
+### 1. Installation
+Install `uv` (https://docs.astral.sh/uv/getting-started/installation/) and run:
 ```bash
-# Install uv (https://docs.astral.sh/uv/getting-started/installation/)
-# Then:
-make install    # creates venv, installs deps, sets up pre-commit hooks
-make check      # runs the full quality gate
+make install
+```
+*(Or manually: `uv sync --all-extras; uv run pre-commit install`)*
+
+### 2. Verify Quality Gate
+Run the full verification suite (format, lint, typecheck, architecture contracts, tests, secrets, security audit):
+```bash
+make check
 ```
 
-## Project structure
+### 3. Start Assessment API Server
+```bash
+uv run uvicorn coglayer.api.app:app --reload --port 8000
+```
+
+### 4. Start Streamlit UI (Separate Terminal)
+```bash
+uv run streamlit run src/coglayer/ui/app.py
+```
+Open your browser at `http://localhost:8501`.
+
+### 5. Or Run the Automated Demo Simulation
+To exercise the full two-session workflow end-to-end via the API without launching the browser UI:
+```bash
+uv run python scripts/demo_simulation.py --api-url http://localhost:8000
+```
+
+## Architecture & Project Structure
+
+For detailed architectural principles, dependency boundaries, Bayesian models, and storage schemas, see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 | Module | Responsibility |
 |---|---|
-| `core` | Domain models and interfaces (Protocols) |
-| `providers` | LLM adapters (Gemini, Groq, Ollama) and a fake provider for tests |
-| `signals` | Passive signal extraction and active micro-probes |
-| `profile` | Bayesian profile model |
-| `coach` | Intervention policy (Thompson sampling bandit) |
-| `exercises` | Exercise generation and validation |
-| `privacy` | Consent, retention, deletion |
-| `sim` | Simulated users and evaluation metrics |
-| `api` | FastAPI proxy (OpenAI-compatible endpoint) |
-| `ui` | Streamlit chat and dashboard |
+| `core` | Domain models, protocols, exceptions, and configuration |
+| `providers` | LLM provider adapters and fake provider for testing |
+| `signals` | Passive signal extraction and active micro-task scorers |
+| `profile` | Bayesian Beta distribution profile model and update service |
+| `coach` | Adaptive decision engine and supportive feedback coach |
+| `exercises` | Adaptive exercise generation and validation |
+| `privacy` | Informed consent tracking, retention, and data deletion |
+| `sim` | Synthetic users and benchmark metrics |
+| `api` | FastAPI REST service and SQLite persistence layer |
+| `ui` | Streamlit assessment flow and interactive timing components |
 
 ## License
 
