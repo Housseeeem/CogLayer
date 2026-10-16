@@ -18,6 +18,7 @@ from coglayer.core.models import (
     TaskResult,
     Trial,
 )
+from coglayer.core.settings import Settings, get_settings
 
 __all__ = [
     "SEQUENCE_TIMEOUT_MS",
@@ -43,6 +44,9 @@ class SequenceSpanScorer:
 
     Requirements: R-004.2, R-004.3, R-004.4
     """
+
+    def __init__(self, settings: Settings | None = None) -> None:
+        self._settings = settings
 
     def score(self, raw: RawTaskResult) -> TaskResult:
         """Score a raw Sequence Span result.
@@ -158,9 +162,16 @@ class SequenceSpanScorer:
             sum(t.rt_ms for t in valid_trials_list) / valid_count if valid_count > 0 else 0.0
         )
 
-        # correct_sequences_ratio: proportion of correct valid sequences
+        # correct_sequences_ratio: proportion of correct sequences where timeouts count
+        # as failed trials in the denominator (valid_count + timeout_count).
         # (used by the profile service's DIMENSION_MAPPING)
-        correct_sequences_ratio: float = correct_sequences / valid_count if valid_count > 0 else 0.0
+        timeout_count: int = sum(1 for t in trials if t.invalid_reason == "timeout")
+        total_sequences_denominator: int = valid_count + timeout_count
+        correct_sequences_ratio: float = (
+            correct_sequences / total_sequences_denominator
+            if total_sequences_denominator > 0
+            else 0.0
+        )
 
         metrics: dict[str, float] = {
             "max_span": float(max_span),
@@ -171,13 +182,18 @@ class SequenceSpanScorer:
             "correct_sequences_ratio": correct_sequences_ratio,
         }
 
+        settings = self._settings or get_settings()
         completeness: float = valid_count / total if total > 0 else 0.0
+
+        anomalies: list[str] = []
+        if completeness < settings.completeness_threshold:
+            anomalies.append("low_completeness")
 
         data_quality = DataQuality(
             valid_trials=valid_count,
             total_trials=total,
             completeness=completeness,
-            anomalies=[],
+            anomalies=anomalies,
         )
 
         return TaskResult(

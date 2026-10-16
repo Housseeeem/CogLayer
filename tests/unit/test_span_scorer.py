@@ -131,8 +131,9 @@ def test_ac_span_metrics_exact() -> None:
       order_errors            = 2  (seqs 4, 5: same items, different order)
       max_span                = 5  (seq 3 is correct with length=5)
       valid_sequence_count    = 5
-      mean_rt_ms              = (5000+8000+12000+6000+9000)/5 = 40000/5 = 8000.0
-      correct_sequences_ratio = 3/5 = 0.6
+      # Timeouts count as failed trials in correct_sequences_ratio:
+      # Denominator = valid_sequence_count (5) + timeout_count (1) = 6
+      correct_sequences_ratio = 3/6 = 0.5
     """
     raw_sequences = [
         # 1: correct, length=3
@@ -228,7 +229,7 @@ def test_ac_span_metrics_exact() -> None:
     assert m["max_span"] == pytest.approx(5.0)
     assert m["valid_sequence_count"] == pytest.approx(5.0)
     assert m["mean_rt_ms"] == pytest.approx(8000.0)
-    assert m["correct_sequences_ratio"] == pytest.approx(0.6)
+    assert m["correct_sequences_ratio"] == pytest.approx(0.5)
 
     # --- Result metadata -----------------------------------------------------
     assert result.task_id == "sequence_span"
@@ -236,3 +237,104 @@ def test_ac_span_metrics_exact() -> None:
 
     # Confirm the SEQUENCE_TIMEOUT_MS constant is exactly 30000
     assert SEQUENCE_TIMEOUT_MS == 30_000.0
+
+
+def test_span_timeouts_count_as_failed_trials_in_ratio() -> None:
+    """Timeouts count as failed trials in correct_sequences_ratio.
+
+    Hand-derived arithmetic:
+      7 sequences total:
+        - 3 correct sequences (response == expected, rt_ms <= 30000):
+          valid=True, response matches expected.
+        - 4 timeout sequences (rt_ms = 35000 > 30000):
+          valid=False, invalid_reason="timeout".
+      Calculation:
+        valid_count = 3 (the 3 correct sequences).
+        timeout_count = 4 (the 4 timeouts).
+        correct_sequences = 3.
+        Denominator = valid_count + timeout_count = 3 + 4 = 7.
+        correct_sequences_ratio = correct_sequences / (valid_count + timeout_count) = 3 / 7.
+        (Previously, denominator was valid_count only, giving 3 / 3 = 1.0).
+    """
+    raw_sequences: list[dict[str, object]] = [
+        # 3 correct sequences
+        {
+            "length": 3,
+            "stimulus": "1,2,3",
+            "expected": "1,2,3",
+            "response": "1,2,3",
+            "rt_ms": 2000.0,
+            "timestamp": TIMESTAMP,
+            "valid": True,
+            "invalid_reason": None,
+        },
+        {
+            "length": 3,
+            "stimulus": "1,2,3",
+            "expected": "1,2,3",
+            "response": "1,2,3",
+            "rt_ms": 2500.0,
+            "timestamp": TIMESTAMP,
+            "valid": True,
+            "invalid_reason": None,
+        },
+        {
+            "length": 3,
+            "stimulus": "1,2,3",
+            "expected": "1,2,3",
+            "response": "1,2,3",
+            "rt_ms": 3000.0,
+            "timestamp": TIMESTAMP,
+            "valid": True,
+            "invalid_reason": None,
+        },
+        # 4 timeout sequences
+        {
+            "length": 3,
+            "stimulus": "1,2,3",
+            "expected": "1,2,3",
+            "response": None,
+            "rt_ms": 35000.0,
+            "timestamp": TIMESTAMP,
+            "valid": True,
+            "invalid_reason": None,
+        },
+        {
+            "length": 3,
+            "stimulus": "1,2,3",
+            "expected": "1,2,3",
+            "response": None,
+            "rt_ms": 35000.0,
+            "timestamp": TIMESTAMP,
+            "valid": True,
+            "invalid_reason": None,
+        },
+        {
+            "length": 3,
+            "stimulus": "1,2,3",
+            "expected": "1,2,3",
+            "response": None,
+            "rt_ms": 35000.0,
+            "timestamp": TIMESTAMP,
+            "valid": True,
+            "invalid_reason": None,
+        },
+        {
+            "length": 3,
+            "stimulus": "1,2,3",
+            "expected": "1,2,3",
+            "response": None,
+            "rt_ms": 35000.0,
+            "timestamp": TIMESTAMP,
+            "valid": True,
+            "invalid_reason": None,
+        },
+    ]
+
+    result = SequenceSpanScorer().score(
+        {"session_id": "test_session", "user_id": "test_user", "sequences": raw_sequences}
+    )
+
+    m = result.metrics
+    assert m["correct_sequences"] == pytest.approx(3.0)
+    assert m["correct_sequences_ratio"] == pytest.approx(3 / 7)

@@ -115,7 +115,7 @@ class ProfileService:
             data_quality dict, and uncertainty dict.
         """
         mappings = DIMENSION_MAPPING.get(result.task_id, [])
-        if not mappings:
+        if not mappings or result.data_quality.anomalies:
             return profile
 
         # Build a BetaProfileModel seeded from persisted alpha/beta
