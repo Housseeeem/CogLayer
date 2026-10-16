@@ -162,9 +162,16 @@ class SequenceSpanScorer:
             sum(t.rt_ms for t in valid_trials_list) / valid_count if valid_count > 0 else 0.0
         )
 
-        # correct_sequences_ratio: proportion of correct valid sequences
+        # correct_sequences_ratio: proportion of correct sequences where timeouts count
+        # as failed trials in the denominator (valid_count + timeout_count).
         # (used by the profile service's DIMENSION_MAPPING)
-        correct_sequences_ratio: float = correct_sequences / valid_count if valid_count > 0 else 0.0
+        timeout_count: int = sum(1 for t in trials if t.invalid_reason == "timeout")
+        total_sequences_denominator: int = valid_count + timeout_count
+        correct_sequences_ratio: float = (
+            correct_sequences / total_sequences_denominator
+            if total_sequences_denominator > 0
+            else 0.0
+        )
 
         metrics: dict[str, float] = {
             "max_span": float(max_span),
