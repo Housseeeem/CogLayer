@@ -206,6 +206,10 @@ class AssessmentRepository(Protocol):  # pragma: no cover
         """Return all ``TaskResult`` objects for a given session."""
         ...
 
+    def delete_result(self, session_id: str, task_id: str) -> None:
+        """Remove a task result and all associated trials, metrics, and quality records."""
+        ...
+
     def delete_user(self, user_id: str) -> None:
         """Remove all sessions, trials, metrics, and quality records for user.
 
