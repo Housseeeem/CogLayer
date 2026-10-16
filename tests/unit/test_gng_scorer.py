@@ -355,3 +355,81 @@ def test_ac_gng_metrics_exact() -> None:
 
     assert result.task_id == "go_no_go"
     assert result.target_dimensions == ["response_inhibition"]
+
+
+def test_nogo_fast_response_counts_as_commission_error_not_exclusion() -> None:
+    """A response on a No-Go trial faster than 100 ms counts as commission error, not exclusion.
+
+    Hand-derived arithmetic:
+      5 No-Go trials:
+        - 4 trials: response=None, rt_ms=0.0 (correctly inhibited).
+        - 1 trial: response="press", rt_ms=80.0 (< 100 ms anticipation threshold).
+      Expected values:
+        - The fast No-Go response trial must have valid=True, invalid_reason=None.
+        - Commission errors = 1.0 (the 80 ms press).
+        - Valid No-Go trials = 5.0.
+        - Correctly inhibited No-Go trials = 4.0.
+        - nogo_accuracy = 4 / 5 = 0.8.
+        (Previously, it was excluded as anticipation: valid=False, giving 4/4 = 1.0).
+    """
+    raw_trials: list[dict[str, object]] = [
+        # 4 correctly inhibited No-Go trials
+        {
+            "stimulus": "nogo",
+            "expected": "inhibit",
+            "response": None,
+            "rt_ms": 0.0,
+            "timestamp": TIMESTAMP,
+            "valid": True,
+            "invalid_reason": None,
+        },
+        {
+            "stimulus": "nogo",
+            "expected": "inhibit",
+            "response": None,
+            "rt_ms": 0.0,
+            "timestamp": TIMESTAMP,
+            "valid": True,
+            "invalid_reason": None,
+        },
+        {
+            "stimulus": "nogo",
+            "expected": "inhibit",
+            "response": None,
+            "rt_ms": 0.0,
+            "timestamp": TIMESTAMP,
+            "valid": True,
+            "invalid_reason": None,
+        },
+        {
+            "stimulus": "nogo",
+            "expected": "inhibit",
+            "response": None,
+            "rt_ms": 0.0,
+            "timestamp": TIMESTAMP,
+            "valid": True,
+            "invalid_reason": None,
+        },
+        # 1 fast press on No-Go (80 ms < 100 ms)
+        {
+            "stimulus": "nogo",
+            "expected": "inhibit",
+            "response": "press",
+            "rt_ms": 80.0,
+            "timestamp": TIMESTAMP,
+            "valid": True,
+            "invalid_reason": None,
+        },
+    ]
+
+    result = GoNoGoScorer().score(
+        {"session_id": "test_session", "user_id": "test_user", "trials": raw_trials}
+    )
+
+    fast_trial = result.trials[4]
+    assert fast_trial.valid is True
+    assert fast_trial.invalid_reason is None
+
+    assert result.metrics["commission_errors"] == pytest.approx(1.0)
+    assert result.metrics["nogo_valid_count"] == pytest.approx(5.0)
+    assert result.metrics["nogo_accuracy"] == pytest.approx(4 / 5)  # 0.8

@@ -58,15 +58,15 @@ def _parse_trial(raw_trial: dict[str, object]) -> Trial:
     regardless of rt_ms, because rt_ms in that case reflects the trial
     timeout, not a deliberate keypress.
 
-    For trials where a response was made:
+    For Go trials where a response was made:
 
     1. If ``rt_ms < ANTICIPATION_THRESHOLD_MS`` -> ``valid=False``,
-       ``invalid_reason="anticipation"`` (applies to all stimuli).
-    2. Else if stimulus is "go" and ``rt_ms < IMPLAUSIBLY_FAST_GO_MS`` ->
+       ``invalid_reason="anticipation"``.
+    2. Else if ``rt_ms < IMPLAUSIBLY_FAST_GO_MS`` ->
        ``valid=False``, ``invalid_reason="implausibly_fast"``.
 
-    The anticipation check runs first; a trial with rt_ms < 100 is always
-    marked "anticipation", never "implausibly_fast".
+    For No-Go trials, any keypress counts as a commission error and remains
+    valid (never excluded as anticipation or implausibly fast).
     """
     stimulus: str = str(raw_trial["stimulus"])
     expected: str = str(raw_trial["expected"])
@@ -83,14 +83,14 @@ def _parse_trial(raw_trial: dict[str, object]) -> Trial:
     )
 
     # Apply exclusion logic - overrides incoming flags when a rule fires.
-    # Exclusions apply ONLY when a response was actually made (response is not None).
-    # A correctly inhibited No-Go (response=None) stays valid regardless of rt_ms,
-    # because the recorded rt_ms reflects the trial timeout, not a keypress.
-    if response is not None:
+    # Exclusions apply ONLY to Go trials where a response was made (response is not None).
+    # A response on a No-Go trial (even faster than 100 ms) counts as a commission error,
+    # not an exclusion. A correctly inhibited No-Go (response=None) also stays valid.
+    if response is not None and stimulus == "go":
         if rt_ms < ANTICIPATION_THRESHOLD_MS:
             valid = False
             invalid_reason = "anticipation"
-        elif stimulus == "go" and rt_ms < IMPLAUSIBLY_FAST_GO_MS:
+        elif rt_ms < IMPLAUSIBLY_FAST_GO_MS:
             valid = False
             invalid_reason = "implausibly_fast"
 
