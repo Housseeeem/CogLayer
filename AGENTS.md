@@ -140,3 +140,10 @@ Never skip, disable or loosen a check without an explicit instruction.
   Never call `datetime.utcnow()` (deprecated, returns naive datetime).
 
 - No helper scripts in the repo root; edits via the edit tool; never reuse INSERT OR REPLACE on tables that have cascading foreign keys.
+
+## Speed rule
+
+- During development, use `make quick` (format + lint + typecheck + arch) and
+  `make test-fast TESTS=tests/unit/test_foo.py` for a fast inner loop.
+- Run the full `make check` exactly once, at the end, before committing or
+  pushing. It remains the mandatory quality gate.
