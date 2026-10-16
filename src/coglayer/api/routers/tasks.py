@@ -109,11 +109,11 @@ def submit_task_result(
             detail=f"No scoring adapter registered for task_id {task_id}.",
         )
 
-    # 4. Prepare raw result payload with top-level attributes
+    # 4. Force identity fields from the checked request (never trust raw_result)
     raw_payload = dict(body.raw_result)
-    raw_payload.setdefault("session_id", body.session_id)
-    raw_payload.setdefault("user_id", body.user_id)
-    raw_payload.setdefault("task_id", task_id)
+    raw_payload["session_id"] = body.session_id
+    raw_payload["user_id"] = body.user_id
+    raw_payload["task_id"] = task_id
 
     # 5. Score raw result
     try:
