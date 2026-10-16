@@ -1,4 +1,4 @@
-.PHONY: install format lint typecheck arch test secrets audit check
+.PHONY: install format lint typecheck arch test secrets audit check quick test-fast
 
 install:
 	uv sync --all-extras
@@ -28,3 +28,11 @@ audit:
 	uv run pip-audit --require-hashes --no-deps -r requirements-audit.txt
 
 check: format lint typecheck arch test secrets audit
+
+quick: format lint typecheck arch
+
+test-fast:
+ifeq ($(TESTS),)
+	$(error TESTS is empty – usage: make test-fast TESTS=tests/unit/test_foo.py)
+endif
+	uv run pytest --no-cov $(TESTS)
