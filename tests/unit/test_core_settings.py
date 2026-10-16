@@ -36,6 +36,7 @@ _ALL_ENV_KEYS = (
     "COGLAYER_LLM_PROVIDER",
     "COGLAYER_COMPLETENESS_THRESHOLD",
     "COGLAYER_FORGETTING_FACTOR",
+    "COGLAYER_GO_NO_GO_MIN_GO_ACCURACY",
 )
 
 
@@ -71,6 +72,11 @@ class TestSettingsDefaults:
         settings = Settings()
         assert settings.llm_provider == "fake"
 
+    def test_go_no_go_min_go_accuracy_default(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        _clear_coglayer_env(monkeypatch)
+        settings = Settings()
+        assert settings.go_no_go_min_go_accuracy == pytest.approx(0.7)
+
 
 # ---------------------------------------------------------------------------
 # Environment variable overrides
@@ -103,6 +109,12 @@ class TestSettingsEnvOverrides:
         settings = get_settings()
         assert settings.forgetting_factor == pytest.approx(0.95)
 
+    def test_go_no_go_min_go_accuracy_override(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("COGLAYER_GO_NO_GO_MIN_GO_ACCURACY", "0.75")
+        get_settings.cache_clear()
+        settings = get_settings()
+        assert settings.go_no_go_min_go_accuracy == pytest.approx(0.75)
+
 
 # ---------------------------------------------------------------------------
 # get_settings() caching behaviour
@@ -132,6 +144,7 @@ class TestGetSettingsCache:
             "COGLAYER_LLM_PROVIDER",
             "COGLAYER_COMPLETENESS_THRESHOLD",
             "COGLAYER_FORGETTING_FACTOR",
+            "COGLAYER_GO_NO_GO_MIN_GO_ACCURACY",
         ):
             monkeypatch.delenv(key, raising=False)
         get_settings.cache_clear()
@@ -140,3 +153,4 @@ class TestGetSettingsCache:
         assert settings.llm_provider == "fake"
         assert settings.completeness_threshold == pytest.approx(0.8)
         assert settings.forgetting_factor == pytest.approx(0.98)
+        assert settings.go_no_go_min_go_accuracy == pytest.approx(0.7)

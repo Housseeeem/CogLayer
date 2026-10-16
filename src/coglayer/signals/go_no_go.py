@@ -23,6 +23,7 @@ from coglayer.core.models import (
     TaskResult,
     Trial,
 )
+from coglayer.core.settings import Settings, get_settings
 
 __all__ = [
     "ANTICIPATION_THRESHOLD_MS",
@@ -149,6 +150,9 @@ class GoNoGoScorer:
     * ``valid_trial_count``  - number of valid trials.
     """
 
+    def __init__(self, settings: Settings | None = None) -> None:
+        self._settings = settings
+
     def score(self, raw: RawTaskResult) -> TaskResult:
         """Score raw Go/No-Go data and return a fully-populated TaskResult."""
         session_id: str = str(raw["session_id"])
@@ -199,15 +203,6 @@ class GoNoGoScorer:
         mean_rt_ms: float = mean(correct_go_rts) if correct_go_rts else 0.0
         rt_std_ms: float = stdev(correct_go_rts) if len(correct_go_rts) >= 2 else 0.0
 
-        # --- Data quality ---------------------------------------------------
-        completeness: float = valid_trial_count / total_trials if total_trials > 0 else 0.0
-        data_quality = DataQuality(
-            valid_trials=valid_trial_count,
-            total_trials=total_trials,
-            completeness=completeness,
-            anomalies=[],
-        )
-
         # --- Stimulus-specific accuracy metrics ----------------------------
         # No-Go accuracy: proportion of valid No-Go trials correctly inhibited
         valid_nogo_trials = [t for t in valid_trials if t.stimulus == "nogo"]
@@ -221,6 +216,22 @@ class GoNoGoScorer:
         correct_go_trials = [t for t in valid_go_trials if _is_correct(t)]
         go_accuracy: float = (
             len(correct_go_trials) / len(valid_go_trials) if valid_go_trials else 0.0
+        )
+
+        # --- Data quality & Quality Gate ------------------------------------
+        settings = self._settings or get_settings()
+        completeness: float = valid_trial_count / total_trials if total_trials > 0 else 0.0
+        anomalies: list[str] = []
+        if completeness < settings.completeness_threshold:
+            anomalies.append("low_completeness")
+        if go_accuracy < settings.go_no_go_min_go_accuracy:
+            anomalies.append("low_go_accuracy")
+
+        data_quality = DataQuality(
+            valid_trials=valid_trial_count,
+            total_trials=total_trials,
+            completeness=completeness,
+            anomalies=anomalies,
         )
 
         # --- Valid trial counts by stimulus type ----------------------------

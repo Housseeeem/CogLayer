@@ -133,18 +133,19 @@ def submit_task_result(
             detail=f"Duplicate submission for session {body.session_id} and task {task_id}.",
         ) from e
 
-    # 7. Update profile via ProfileService
-    existing_profile = profile_repo.get_profile(body.user_id)
-    if existing_profile is None:
-        existing_profile = CognitiveProfile(
-            user_id=body.user_id,
-            dimensions={},
-            evidence_history=[],
-            data_quality={},
-            uncertainty={},
-        )
-    updated_profile = profile_service.update_from_result(existing_profile, result)
-    profile_repo.save_profile(updated_profile)
+    # 7. Update profile via ProfileService only if quality gate passed
+    if not result.data_quality.anomalies:
+        existing_profile = profile_repo.get_profile(body.user_id)
+        if existing_profile is None:
+            existing_profile = CognitiveProfile(
+                user_id=body.user_id,
+                dimensions={},
+                evidence_history=[],
+                data_quality={},
+                uncertainty={},
+            )
+        updated_profile = profile_service.update_from_result(existing_profile, result)
+        profile_repo.save_profile(updated_profile)
 
     # 8. Append task_id to session.completed_tasks and persist
     if task_id not in session.completed_tasks:

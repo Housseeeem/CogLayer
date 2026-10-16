@@ -18,6 +18,7 @@ from coglayer.core.models import (
     TaskResult,
     Trial,
 )
+from coglayer.core.settings import Settings, get_settings
 
 __all__ = [
     "SEQUENCE_TIMEOUT_MS",
@@ -43,6 +44,9 @@ class SequenceSpanScorer:
 
     Requirements: R-004.2, R-004.3, R-004.4
     """
+
+    def __init__(self, settings: Settings | None = None) -> None:
+        self._settings = settings
 
     def score(self, raw: RawTaskResult) -> TaskResult:
         """Score a raw Sequence Span result.
@@ -171,13 +175,18 @@ class SequenceSpanScorer:
             "correct_sequences_ratio": correct_sequences_ratio,
         }
 
+        settings = self._settings or get_settings()
         completeness: float = valid_count / total if total > 0 else 0.0
+
+        anomalies: list[str] = []
+        if completeness < settings.completeness_threshold:
+            anomalies.append("low_completeness")
 
         data_quality = DataQuality(
             valid_trials=valid_count,
             total_trials=total,
             completeness=completeness,
-            anomalies=[],
+            anomalies=anomalies,
         )
 
         return TaskResult(
