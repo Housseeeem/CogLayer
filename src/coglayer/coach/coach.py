@@ -31,7 +31,7 @@ from coglayer.core.models import CognitiveProfile, TaskResult
 from coglayer.core.protocols import LLMProvider, LLMRequest
 from coglayer.core.settings import Settings
 
-__all__ = ["FORBIDDEN_WORDS_PATTERN", "CognitiveCoach"]
+__all__ = ["FORBIDDEN_WORDS_PATTERN", "CognitiveCoach", "validate_llm_reply"]
 
 _log = logging.getLogger(__name__)
 
@@ -47,6 +47,7 @@ _FORBIDDEN_WORDS: Final[tuple[str, ...]] = (
     "impairment",
     "IQ",
     "patient",
+    "patients",
 )
 
 FORBIDDEN_WORDS_PATTERN: Final[re.Pattern[str]] = re.compile(
@@ -62,6 +63,46 @@ _LLM_INSTRUCTION: Final[str] = (
     "friendly, encouraging feedback for the user. Do not rank dimensions "
     "against each other and do not produce a global score. Keep it concise."
 )
+
+
+def _echoes_instruction(reply: str, instruction: str) -> bool:
+    """Return True if reply echoes the instruction or its opening directive."""
+    if not instruction:
+        return False
+    r_lower = reply.lower()
+    inst_lower = instruction.strip().lower()
+    if inst_lower in r_lower:
+        return True
+    first_sentence = inst_lower.split(".")[0].strip()
+    if len(first_sentence) >= 15 and first_sentence in r_lower:
+        return True
+    return False
+
+
+def validate_llm_reply(
+    reply: str,
+    instruction: str = _LLM_INSTRUCTION,
+) -> str | None:
+    """Validate an LLM reply against safety and quality rules.
+
+    Accepts an LLM reply only if ALL hold:
+      a) none of these whole words appear, case-insensitive:
+         diagnosis, disorder, deficit, impairment, IQ, patient, patients;
+      b) length >= 20 characters after stripping;
+      c) it does not echo the instruction/system prompt text.
+
+    Otherwise returns None so the caller falls back to the local text.
+    """
+    if not reply:
+        return None
+    stripped = reply.strip()
+    if len(stripped) < 20:
+        return None
+    if FORBIDDEN_WORDS_PATTERN.search(stripped):
+        return None
+    if _echoes_instruction(stripped, instruction):
+        return None
+    return stripped
 
 
 class CognitiveCoach:

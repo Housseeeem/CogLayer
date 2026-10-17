@@ -23,6 +23,7 @@ from datetime import UTC, datetime
 from coglayer.coach.coach import (
     FORBIDDEN_WORDS_PATTERN,
     CognitiveCoach,
+    validate_llm_reply,
 )
 from coglayer.core.models import (
     CognitiveProfile,
@@ -421,3 +422,114 @@ def test_coach_no_provider_called_when_coach_use_llm_false() -> None:
     )
     assert _DISCLAIMER in feedback
     assert "Observations:" in feedback
+
+
+# ---------------------------------------------------------------------------
+# Step 2: Validation of an LLM reply (pure function)
+# ---------------------------------------------------------------------------
+
+
+def test_validate_llm_reply_passing_case() -> None:
+    """Accept an LLM reply when all three rules hold.
+
+    Hand-derived: clean string of 61 characters, no forbidden words, does not
+    echo instruction prompt. Returns stripped reply string.
+    """
+    valid_text = "Great focus and steady progress throughout the session today."
+    assert len(valid_text) >= 20
+    result = validate_llm_reply(valid_text)
+    assert result == valid_text
+
+
+def test_validate_llm_reply_rule_a_forbidden_words() -> None:
+    """Rule a: reject reply containing any forbidden word (case-insensitive whole word).
+
+    Hand-derived: each forbidden word in a sentence >= 20 characters must return None.
+    Forbidden words: diagnosis, disorder, deficit, impairment, IQ, patient.
+    """
+    cases = [
+        "A formal diagnosis cannot be made from these tasks.",
+        "Your responses show no disorder in working memory.",
+        "There is no deficit detected in today's performance.",
+        "No impairment was observed in your reaction speed.",
+        "This assessment does not measure your IQ score.",
+        "You were a very patient user throughout the session.",
+    ]
+    for text in cases:
+        assert len(text) >= 20
+        assert validate_llm_reply(text) is None, f"Expected None for forbidden word in: {text}"
+
+
+def test_validate_llm_reply_rule_a_patients_plural_decision() -> None:
+    """Rule a: 'patients' plural is a separate case.
+
+    Decision: 'patients' is also forbidden because plural clinical language
+    violates non-clinical coaching principles.
+    Hand-derived: text containing 'patients' must return None.
+    """
+    text = "Most patients show similar patterns on sequence span."
+    assert len(text) >= 20
+    assert validate_llm_reply(text) is None
+
+
+def test_validate_llm_reply_rule_a_no_false_positives_iq_substring() -> None:
+    """Rule a: 'iq' inside another word must NOT match.
+
+    Hand-derived: words like 'technique' and 'unique' contain 'iq' as substring,
+    not whole word. The reply must be accepted.
+    """
+    clean_text = "Your technique on the visual span task was unique."
+    assert len(clean_text) >= 20
+    result = validate_llm_reply(clean_text)
+    assert result == clean_text
+
+
+def test_validate_llm_reply_rule_b_length_boundary_19_vs_20() -> None:
+    """Rule b: length >= 20 characters after stripping.
+
+    Hand-derived:
+      - 19 characters after strip -> returns None
+      - 20 characters after strip -> accepted
+      - padded string with 19 non-whitespace chars -> returns None
+    """
+    # 19 characters
+    text_19 = "1234567890123456789"
+    assert len(text_19) == 19
+    assert validate_llm_reply(text_19) is None
+
+    # Padded with spaces, 19 chars when stripped
+    padded_19 = "   1234567890123456789   "
+    assert len(padded_19.strip()) == 19
+    assert validate_llm_reply(padded_19) is None
+
+    # 20 characters
+    text_20 = "12345678901234567890"
+    assert len(text_20) == 20
+    assert validate_llm_reply(text_20) == text_20
+
+    # Padded with spaces, 20 chars when stripped
+    padded_20 = "   12345678901234567890   "
+    assert len(padded_20.strip()) == 20
+    assert validate_llm_reply(padded_20) == text_20
+
+
+def test_validate_llm_reply_rule_c_echoes_instruction() -> None:
+    """Rule c: reject reply if it echoes the instruction / system prompt text.
+
+    Hand-derived:
+      - Full instruction prompt text -> returns None
+      - Prompt prefix / opening sentence (as produced by FakeProvider fallback) -> returns None
+      - Reply embedding 'You are a supportive cognitive coach' -> returns None
+    """
+    from coglayer.coach.coach import _LLM_INSTRUCTION
+
+    # Exact instruction echo
+    assert validate_llm_reply(_LLM_INSTRUCTION) is None
+
+    # FakeProvider fallback echo: '[FakeProvider seed=42] You are a supportive cognitive coach. Us'
+    fake_provider_echo = f"[FakeProvider seed=42] {_LLM_INSTRUCTION[:40]}"
+    assert validate_llm_reply(fake_provider_echo) is None
+
+    # Opening directive embedded in response
+    embedded_echo = "You are a supportive cognitive coach. Great work on the tasks!"
+    assert validate_llm_reply(embedded_echo) is None
