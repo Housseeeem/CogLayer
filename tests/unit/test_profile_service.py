@@ -559,3 +559,38 @@ def test_coverage_line_203_missing_count_metric_with_zero_valid_trials() -> None
     assert est.alpha == pytest.approx(4.0)
     assert est.beta_param == pytest.approx(3.0)
     assert est.mean == pytest.approx(4.0 / 7.0)
+
+
+def test_descriptor_metric_comes_only_from_descriptor_not_parameters() -> None:
+    """Primary metric comes only from desc.primary_metric, ignoring parameters['primary_metric'].
+
+    Hand-derived:
+      desc_param has primary_metric=None and parameters={'primary_metric': 'param_metric'}.
+      derive_dimension_mapping_from_descriptors([desc_param]) must NOT map task_param (returns {}).
+      desc_field has primary_metric='field_metric', count_metric='field_count'.
+      derive_dimension_mapping_from_descriptors([desc_field]) maps task_field to
+      [('dim', 'field_metric', 1.0, 'field_count')].
+    """
+    desc_param = TaskDescriptor(
+        task_id="task_param",
+        version="1.0",
+        instructions="Instructions",
+        target_dimensions=["dim_param"],
+        parameters={"primary_metric": "param_metric"},
+    )
+    mapping_param = derive_dimension_mapping_from_descriptors([desc_param])
+    # Hand-derived: parameters['primary_metric'] must NOT be used -> mapping is empty
+    assert mapping_param == {}
+
+    desc_field = TaskDescriptor(
+        task_id="task_field",
+        version="1.0",
+        instructions="Instructions",
+        target_dimensions=["dim_field"],
+        primary_metric="field_metric",
+        count_metric="field_count",
+        parameters={},
+    )
+    mapping_field = derive_dimension_mapping_from_descriptors([desc_field])
+    # Hand-derived: primary_metric and count_metric come from descriptor fields
+    assert mapping_field == {"task_field": [("dim_field", "field_metric", 1.0, "field_count")]}

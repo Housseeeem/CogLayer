@@ -138,7 +138,8 @@ def test_extensibility_third_task_endpoint_updates_profile(tmp_path: pathlib.Pat
         version="1.0",
         instructions="Complete the pattern match.",
         target_dimensions=["response_inhibition"],
-        parameters={"trials": 10, "primary_metric": "pattern_score"},
+        primary_metric="pattern_score",
+        parameters={"trials": 10},
     )
     scorer = TrivialScorer()
     registry.register(fake_descriptor, scorer=scorer)

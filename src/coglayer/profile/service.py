@@ -67,12 +67,12 @@ def derive_dimension_mapping_from_descriptors(
     """Derive task-to-dimension mappings from task descriptors (single source of truth)."""
     mapping: dict[str, list[DimMapping]] = {}
     for desc in descriptors:
-        primary = desc.primary_metric or str(desc.parameters.get("primary_metric", ""))
+        primary = desc.primary_metric
         if not primary:
             continue
         weight_val = desc.parameters.get("weight", 1.0)
         weight = float(weight_val) if isinstance(weight_val, (int, float, str)) else 1.0
-        count_m = str(desc.parameters.get("count_metric", ""))
+        count_m = desc.count_metric or str(desc.parameters.get("count_metric", ""))
         entries: list[DimMapping] = []
         for dim in desc.target_dimensions:
             entries.append((dim, primary, weight, count_m))
@@ -166,10 +166,10 @@ class ProfileService:
                 except KeyError:
                     desc = None
             if desc is not None:
-                primary = desc.primary_metric or str(desc.parameters.get("primary_metric", ""))
+                primary = desc.primary_metric
                 weight_val = desc.parameters.get("weight", 1.0)
                 weight = float(weight_val) if isinstance(weight_val, (int, float, str)) else 1.0
-                count_m = str(desc.parameters.get("count_metric", ""))
+                count_m = desc.count_metric or str(desc.parameters.get("count_metric", ""))
                 for dim in desc.target_dimensions:
                     if primary:
                         mappings.append((dim, primary, weight, count_m))

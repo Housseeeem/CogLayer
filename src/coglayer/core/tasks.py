@@ -20,6 +20,7 @@ GO_NO_GO_DESCRIPTOR = TaskDescriptor(
     ),
     target_dimensions=["response_inhibition"],
     primary_metric="nogo_accuracy",
+    count_metric="nogo_valid_count",
     parameters={
         "n_practice_trials": 5,
         "n_scored_trials": 20,
@@ -44,6 +45,7 @@ SEQUENCE_SPAN_DESCRIPTOR = TaskDescriptor(
     ),
     target_dimensions=["sequential_visual_memory"],
     primary_metric="correct_sequences_ratio",
+    count_metric="valid_sequence_count",
     parameters={
         "n_demo_sequences": 1,
         "n_practice_sequences": 2,
