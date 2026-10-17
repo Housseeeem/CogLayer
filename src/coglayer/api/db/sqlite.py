@@ -345,6 +345,22 @@ class SQLiteAssessmentRepository:
                 )
         return results
 
+    def delete_result(self, session_id: str, task_id: str) -> None:
+        """Remove a task result and all associated trials, metrics, and quality records."""
+        with _connect(self._db_path) as conn:
+            conn.execute(
+                "DELETE FROM trials WHERE session_id = ? AND task_id = ?",
+                (session_id, task_id),
+            )
+            conn.execute(
+                "DELETE FROM task_metrics WHERE session_id = ? AND task_id = ?",
+                (session_id, task_id),
+            )
+            conn.execute(
+                "DELETE FROM data_quality WHERE session_id = ? AND task_id = ?",
+                (session_id, task_id),
+            )
+
     def delete_user(self, user_id: str) -> None:
         """Remove all sessions (and cascaded trials/metrics/quality) for the user."""
         with _connect(self._db_path) as conn:

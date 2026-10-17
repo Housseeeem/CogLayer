@@ -10,6 +10,7 @@ Requirements: R-002.1, R-005.4, R-006.1
 
 from __future__ import annotations
 
+import logging
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -35,6 +36,7 @@ from coglayer.privacy.consent import ConsentService
 from coglayer.profile.service import ProfileService
 
 router = APIRouter(tags=["tasks"])
+logger = logging.getLogger(__name__)
 
 
 class TaskSubmitRequest(BaseModel):
@@ -109,11 +111,11 @@ def submit_task_result(
             detail=f"No scoring adapter registered for task_id {task_id}.",
         )
 
-    # 4. Prepare raw result payload with top-level attributes
+    # 4. Force identity fields from the checked request (never trust raw_result)
     raw_payload = dict(body.raw_result)
-    raw_payload.setdefault("session_id", body.session_id)
-    raw_payload.setdefault("user_id", body.user_id)
-    raw_payload.setdefault("task_id", task_id)
+    raw_payload["session_id"] = body.session_id
+    raw_payload["user_id"] = body.user_id
+    raw_payload["task_id"] = task_id
 
     # 5. Score raw result
     try:
@@ -124,16 +126,8 @@ def submit_task_result(
             detail=f"Error scoring task result: {e}",
         ) from e
 
-    # 6. Save result to assessment repository (duplicate check)
-    try:
-        assessment_repo.save_result(result)
-    except DuplicateSubmissionError as e:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=f"Duplicate submission for session {body.session_id} and task {task_id}.",
-        ) from e
-
-    # 7. Update profile via ProfileService only if quality gate passed
+    # 6. Compute updated profile (pure computation) BEFORE save_result
+    updated_profile: CognitiveProfile | None = None
     if not result.data_quality.anomalies:
         existing_profile = profile_repo.get_profile(body.user_id)
         if existing_profile is None:
@@ -145,9 +139,33 @@ def submit_task_result(
                 uncertainty={},
             )
         updated_profile = profile_service.update_from_result(existing_profile, result)
-        profile_repo.save_profile(updated_profile)
 
-    # 8. Append task_id to session.completed_tasks and persist
+    # 7. Save result to assessment repository (duplicate check)
+    try:
+        assessment_repo.save_result(result)
+    except DuplicateSubmissionError as e:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Duplicate submission for session {body.session_id} and task {task_id}.",
+        ) from e
+
+    # 8. Persist profile update (with compensation if save_profile fails)
+    if updated_profile is not None:
+        try:
+            profile_repo.save_profile(updated_profile)
+        except Exception as exc:
+            try:
+                assessment_repo.delete_result(body.session_id, task_id)
+            except Exception as del_exc:
+                logger.warning(
+                    "Failed to compensate task result deletion for session %s task %s: %s",
+                    body.session_id,
+                    task_id,
+                    del_exc,
+                )
+            raise exc
+
+    # 9. Append task_id to session.completed_tasks and persist
     if task_id not in session.completed_tasks:
         session.completed_tasks.append(task_id)
         assessment_repo.save_session(session)
