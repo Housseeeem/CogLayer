@@ -228,3 +228,56 @@ def test_coach_fallback_when_profile_none(tmp_path: pathlib.Path) -> None:
     coach_resp = client.post(f"/v1/assessment/coach/{user_id}")
     assert coach_resp.status_code == 200
     assert "Based on these two tasks only" in coach_resp.text
+
+
+def test_submit_unregistered_task_version_stores_result_without_profile_update(
+    tmp_path: pathlib.Path,
+) -> None:
+    """If result.task_version is not registered, result is stored and profile untouched."""
+    from coglayer.api.deps import get_scoring_adapters
+    from coglayer.core.models import DataQuality, TaskResult
+
+    class FakeVersionScorer:
+        def score(self, raw: dict[str, object]) -> TaskResult:
+            return TaskResult(
+                task_id="go_no_go",
+                task_version="9.9",
+                session_id=str(raw["session_id"]),
+                user_id=str(raw["user_id"]),
+                trials=[],
+                metrics={"nogo_accuracy": 0.85, "nogo_valid_count": 10.0},
+                signals=[],
+                target_dimensions=["response_inhibition"],
+                data_quality=DataQuality(
+                    valid_trials=10, total_trials=10, completeness=1.0, anomalies=[]
+                ),
+                uncertainty=None,
+            )
+
+    settings = Settings(db_path=str(tmp_path / "test_api_ver.db"))
+    app = create_app(settings)
+    app.dependency_overrides[get_scoring_adapters] = lambda: {"go_no_go": FakeVersionScorer()}
+    client = TestClient(app)
+
+    user_id = "u_ver"
+    client.post("/v1/assessment/consent", json={"user_id": user_id})
+    sess = client.post("/v1/assessment/sessions", json={"user_id": user_id}).json()
+    s_id = sess["session_id"]
+
+    resp = client.post(
+        "/v1/assessment/tasks/go_no_go/submit",
+        json={"session_id": s_id, "user_id": user_id, "raw_result": {}},
+    )
+    assert resp.status_code == 200
+    res_data = resp.json()
+    assert "unknown_task_version" in res_data["data_quality"]["anomalies"]
+
+    # Profile was not updated
+    prof = client.get(f"/v1/assessment/profile/{user_id}").json()
+    assert prof["dimensions"] == {}
+
+    # Result was still stored in session results
+    results_resp = client.get(f"/v1/assessment/sessions/{s_id}/results")
+    assert results_resp.status_code == 200
+    assert len(results_resp.json()) == 1
+    assert results_resp.json()[0]["task_version"] == "9.9"

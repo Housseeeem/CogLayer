@@ -435,18 +435,14 @@ def test_coverage_lines_88_94_derive_dimension_mapping_registry_keyerror() -> No
 
 
 def test_coverage_lines_163_167_registry_version_fallback_and_missing() -> None:
-    """Lines 163-167: ProfileService fallback to 1.0 and fallback to DIMENSION_MAPPING on KeyError.
+    """Lines 163-167: Unregistered task_version adds anomaly and skips update.
 
     Hand-derived:
-      Case 1: result task_version="2.0", registry has "1.0".
-        KeyError on 2.0 -> falls back to 1.0.
-        Prior (1, 1). Outcome 0.75, count 10, weight 1.0 -> n_eff = 10.0.
-        alpha = 1 + 10 * 0.75 = 8.5, beta = 1 + 10 * 0.25 = 3.5.
-        mean = 8.5 / 12.0 = 0.708333...
-      Case 2: result task_version="2.0", registry has neither 2.0 nor 1.0.
-        desc becomes None.
-        If task is in DIMENSION_MAPPING (go_no_go), it falls back to static DIMENSION_MAPPING.
-      Case 3: unknown task not in registry or DIMENSION_MAPPING -> returns unchanged profile.
+      Case 1: result task_version="2.0", registry only has "1.0".
+        Profile is NOT updated, anomalies contains 'unknown_task_version'.
+      Case 2: svc without registry, result task_version="2.0".
+        Profile is NOT updated, anomalies contains 'unknown_task_version'.
+      Case 3: unknown task_id not in registry -> returns unchanged profile.
     """
     registry = InMemoryTaskRegistry()
     desc_v1 = TaskDescriptor(
@@ -455,13 +451,12 @@ def test_coverage_lines_163_167_registry_version_fallback_and_missing() -> None:
         instructions="Test",
         target_dimensions=["custom_dim"],
         primary_metric="custom_metric",
-        parameters={"count_metric": "custom_count"},
+        count_metric="custom_count",
+        parameters={},
     )
     registry.register(desc_v1)
 
     svc = ProfileService(lambda_=1.0, registry=registry)
-    # Case 1: result has version 2.0 -> registry.get("custom_fallback_task", "2.0") raises KeyError,
-    # then registry.get("custom_fallback_task", "1.0") succeeds (lines 163-165).
     dq1 = DataQuality(valid_trials=10, total_trials=10, completeness=1.0, anomalies=[])
     res1 = TaskResult(
         task_id="custom_fallback_task",
@@ -476,25 +471,25 @@ def test_coverage_lines_163_167_registry_version_fallback_and_missing() -> None:
         uncertainty=None,
     )
     p1 = svc.update_from_result(_EMPTY_PROFILE, res1)
-    # Hand-derived: alpha = 1 + 10 * 0.75 = 8.5, beta = 1 + 10 * 0.25 = 3.5
-    est1 = p1.dimensions["custom_dim"]
-    assert est1.alpha == pytest.approx(8.5)
-    assert est1.beta_param == pytest.approx(3.5)
-    assert est1.mean == pytest.approx(8.5 / 12.0)
+    # Hand-derived: version 2.0 is not registered -> profile is untouched
+    assert p1.dimensions == {}
+    assert "unknown_task_version" in res1.data_quality.anomalies
 
-    # Case 2: neither "2.0" nor "1.0" in registry -> lines 166-167 desc=None
-    # Falls back to static DIMENSION_MAPPING for registered tasks
-    # Use go_no_go with version "99.0" which is not in registry
-    res2 = _make_gng_result(nogo_accuracy=0.8, nogo_valid_count=10.0)
-    res2_unknown_ver = res2.model_copy(update={"task_version": "99.0"})
-    p2 = svc.update_from_result(_EMPTY_PROFILE, res2_unknown_ver)
-    # go_no_go is in DIMENSION_MAPPING, so it succeeds via fallback to DIMENSION_MAPPING
-    assert "response_inhibition" in p2.dimensions
+    # Case 2: svc without registry and version != "1.0"
+    svc_no_reg = ProfileService(lambda_=1.0, registry=None)
+    res2 = _make_gng_result(nogo_accuracy=0.8, nogo_valid_count=10.0).model_copy(
+        update={"task_version": "99.0"}
+    )
+    p2 = svc_no_reg.update_from_result(_EMPTY_PROFILE, res2)
+    assert p2.dimensions == {}
+    assert "unknown_task_version" in res2.data_quality.anomalies
 
-    # Case 3: unknown task not in registry and not in DIMENSION_MAPPING -> unchanged
-    res3 = res1.model_copy(update={"task_id": "totally_unknown_task"})
-    p3 = svc.update_from_result(_EMPTY_PROFILE, res3)
-    assert p3.dimensions == {}
+    # Case 3: registered version "1.0" with svc_no_reg -> updates
+    res3 = _make_gng_result(nogo_accuracy=0.8, nogo_valid_count=10.0).model_copy(
+        update={"task_version": "1.0"}
+    )
+    p3 = svc_no_reg.update_from_result(_EMPTY_PROFILE, res3)
+    assert "response_inhibition" in p3.dimensions
 
 
 def test_coverage_line_203_missing_count_metric_with_zero_valid_trials() -> None:
@@ -594,3 +589,53 @@ def test_descriptor_metric_comes_only_from_descriptor_not_parameters() -> None:
     mapping_field = derive_dimension_mapping_from_descriptors([desc_field])
     # Hand-derived: primary_metric and count_metric come from descriptor fields
     assert mapping_field == {"task_field": [("dim_field", "field_metric", 1.0, "field_count")]}
+
+
+def test_unregistered_task_version_does_not_update_profile_and_sets_anomaly() -> None:
+    """If result.task_version is not registered, profile is NOT updated and anomaly is added.
+
+    Hand-derived:
+      Prior: alpha=1.0, beta=1.0.
+      Result with task_version="9.9" (unregistered for go_no_go):
+        alpha stays 1.0, beta stays 1.0.
+        result.data_quality.anomalies contains "unknown_task_version".
+      Result with task_version="1.0" (registered for go_no_go):
+        outcome=0.8, count=10.0, weight=1.0 -> n_eff = 10.0.
+        alpha = 1.0 + 10.0 * 0.8 = 9.0.
+        beta = 1.0 + 10.0 * (1 - 0.8) = 3.0.
+        mean = 9.0 / (9.0 + 3.0) = 0.75.
+        Evidence records task_version="1.0".
+    """
+    registry = InMemoryTaskRegistry()
+    desc_v1 = TaskDescriptor(
+        task_id="go_no_go",
+        version="1.0",
+        instructions="Instructions",
+        target_dimensions=["response_inhibition"],
+        primary_metric="nogo_accuracy",
+        count_metric="nogo_valid_count",
+        parameters={},
+    )
+    registry.register(desc_v1)
+    svc = ProfileService(lambda_=1.0, registry=registry)
+
+    # Version 9.9 is not registered
+    res_9_9 = _make_gng_result(nogo_accuracy=0.8, nogo_valid_count=10.0).model_copy(
+        update={"task_version": "9.9"}
+    )
+    p_after_9_9 = svc.update_from_result(_EMPTY_PROFILE, res_9_9)
+    # Profile NOT updated: dimension response_inhibition should not be updated (or prior 1.0/1.0)
+    assert "response_inhibition" not in p_after_9_9.dimensions
+    assert "unknown_task_version" in res_9_9.data_quality.anomalies
+
+    # Version 1.0 IS registered
+    res_1_0 = _make_gng_result(nogo_accuracy=0.8, nogo_valid_count=10.0).model_copy(
+        update={"task_version": "1.0"}
+    )
+    p_after_1_0 = svc.update_from_result(_EMPTY_PROFILE, res_1_0)
+    est = p_after_1_0.dimensions["response_inhibition"]
+    assert est.alpha == pytest.approx(9.0)
+    assert est.beta_param == pytest.approx(3.0)
+    assert est.mean == pytest.approx(0.75)
+    assert len(p_after_1_0.evidence_history) == 1
+    assert p_after_1_0.evidence_history[0].task_version == "1.0"

@@ -149,6 +149,7 @@ class Evidence(BaseModel):
     reason_code: str
     task_id: str
     session_id: str
+    task_version: str | None = None
 
 
 class DimensionEstimate(BaseModel):
