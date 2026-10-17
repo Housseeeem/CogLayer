@@ -533,3 +533,95 @@ def test_validate_llm_reply_rule_c_echoes_instruction() -> None:
     # Opening directive embedded in response
     embedded_echo = "You are a supportive cognitive coach. Great work on the tasks!"
     assert validate_llm_reply(embedded_echo) is None
+
+
+# ---------------------------------------------------------------------------
+# Step 3: Readable local text
+# ---------------------------------------------------------------------------
+
+
+def test_step3_readable_local_text_hand_derived_and_scipy() -> None:
+    """Validate readable local text format, cautious wording, and statistical bounds.
+
+    Hand-derived:
+      Beta(alpha=9, beta=3) has mean 9 / (9 + 3) = 9/12 = 0.75 = 75%.
+      n_evidence = 1 session.
+    TESTED:
+      Independent scipy computation of 90% credible interval for Beta(9, 3):
+      lower = beta.ppf(0.05, 9, 3) =~ 0.5299 -> 53%
+      upper = beta.ppf(0.95, 9, 3) =~ 0.9212 -> 92%
+    """
+    from scipy.stats import beta as scipy_beta
+
+    # TESTED: independent computation of interval bounds with scipy
+    scipy_lo = float(scipy_beta.ppf(0.05, 9.0, 3.0))
+    scipy_hi = float(scipy_beta.ppf(0.95, 9.0, 3.0))
+    expected_lo_pct = round(scipy_lo * 100)  # 53%
+    expected_hi_pct = round(scipy_hi * 100)  # 92%
+
+    dim_estimate = DimensionEstimate(
+        dimension="response_inhibition",
+        mean=9.0 / 12.0,  # hand-derived: 0.75
+        lower=scipy_lo,
+        upper=scipy_hi,
+        n_evidence=1,
+        last_update=_TS,
+        alpha=9.0,
+        beta_param=3.0,
+    )
+    profile = _make_profile(dimensions={"response_inhibition": dim_estimate})
+
+    local_text = CognitiveCoach._build_local_text(profile)
+
+    # Percentage: 75%
+    assert "75%" in local_text
+
+    # Two-sided interval: 53% - 92% (or 53% \u2013 92%)
+    assert (
+        f"{expected_lo_pct}% \u2013 {expected_hi_pct}%" in local_text
+        or f"{expected_lo_pct}% - {expected_hi_pct}%" in local_text
+    )
+
+    # Number of sessions: 1 session
+    assert "1 session" in local_text
+
+    # Cautious wording: MUST contain "suggests", NEVER "is"
+    assert "suggests" in local_text.lower()
+    assert re.search(r"\bis\b", local_text, re.IGNORECASE) is None, (
+        f"Found forbidden word 'is' in local text:\n{local_text}"
+    )
+
+    # Fixed warning kept exactly
+    exact_warning = "Based on these two tasks only \u2014 not a clinical assessment."
+    assert exact_warning in local_text
+
+    # No clinical terms from Step 2 forbidden words
+    assert FORBIDDEN_WORDS_PATTERN.search(local_text) is None
+
+    # No ranking or comparison of dimensions, no global score
+    ranking_patterns = [
+        r"\brank\b",
+        r"\branked\b",
+        r"\branking\b",
+        r"\bglobal score\b",
+        r"\boverall score\b",
+        r"#\d+",
+        r"\bbetter than\b",
+        r"\bworse than\b",
+    ]
+    for pat in ranking_patterns:
+        assert re.search(pat, local_text, re.IGNORECASE) is None
+
+
+def test_step3_no_fake_provider_leak_in_feedback() -> None:
+    """The coach must never leak '[FakeProvider seed=42] ...' into user-facing output."""
+    profile = _make_profile()
+    provider = FakeProvider(seed=42)
+
+    feedback = _COACH.generate_feedback(profile, provider)
+
+    assert "[FakeProvider" not in feedback
+    assert "You are a supportive cognitive coach" not in feedback
+    assert _DISCLAIMER in feedback
+    assert "suggests" in feedback.lower()
+    assert re.search(r"\bis\b", feedback, re.IGNORECASE) is None
