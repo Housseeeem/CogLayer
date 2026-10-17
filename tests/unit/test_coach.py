@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import re
 from datetime import UTC, datetime
+from pathlib import Path
 
 from coglayer.coach.coach import (
     FORBIDDEN_WORDS_PATTERN,
@@ -625,3 +626,142 @@ def test_step3_no_fake_provider_leak_in_feedback() -> None:
     assert _DISCLAIMER in feedback
     assert "suggests" in feedback.lower()
     assert re.search(r"\bis\b", feedback, re.IGNORECASE) is None
+
+
+# ---------------------------------------------------------------------------
+# Step 4: End to end
+# ---------------------------------------------------------------------------
+
+
+def test_e2e_coach_endpoint_coach_use_llm_false(tmp_path: Path) -> None:
+    """Through the real coach endpoint with coach_use_llm=False:
+    the response contains the local text and the fixed warning, and no provider call happened.
+    """
+    from fastapi.testclient import TestClient
+
+    from coglayer.api.app import create_app
+    from coglayer.api.deps import get_llm_provider
+
+    settings = Settings(
+        db_path=str(tmp_path / "test_coach_e2e.db"),
+        coach_use_llm=False,
+    )
+    app = create_app(settings)
+
+    class RaisingProvider:
+        def complete(self, request: LLMRequest) -> LLMResponse:
+            raise AssertionError("LLM provider must not be called when coach_use_llm is False")
+
+    app.dependency_overrides[get_llm_provider] = lambda: RaisingProvider()
+    client = TestClient(app)
+
+    user_id = "user_e2e_local"
+    client.post("/v1/assessment/consent", json={"user_id": user_id})
+    s_id = client.post("/v1/assessment/sessions", json={"user_id": user_id}).json()["session_id"]
+
+    # Complete both tasks to unlock the coach
+    gng = [
+        {
+            "stimulus": "go",
+            "expected": "press",
+            "response": "press",
+            "rt_ms": 200.0,
+            "timestamp": "2024-01-15T10:00:00+00:00",
+        }
+    ]
+    span = [
+        {
+            "stimulus": "0,1",
+            "expected": "0,1",
+            "response": "0,1",
+            "rt_ms": 1000.0,
+            "timestamp": "2024-01-15T10:00:10+00:00",
+            "length": 2,
+        }
+    ]
+    client.post(
+        "/v1/assessment/tasks/go_no_go/submit",
+        json={"session_id": s_id, "user_id": user_id, "raw_result": {"trials": gng}},
+    )
+    client.post(
+        "/v1/assessment/tasks/sequence_span/submit",
+        json={"session_id": s_id, "user_id": user_id, "raw_result": {"sequences": span}},
+    )
+
+    resp = client.post(f"/v1/assessment/coach/{user_id}")
+    assert resp.status_code == 200
+    text = resp.text
+
+    # Contains local text and fixed warning
+    assert _DISCLAIMER in text
+    assert "suggests" in text.lower()
+    assert re.search(r"\bis\b", text, re.IGNORECASE) is None
+    assert "[FakeProvider" not in text
+
+
+def test_e2e_coach_endpoint_fallback_on_forbidden_word(tmp_path: Path) -> None:
+    """Through the real coach endpoint with a provider returning a forbidden word:
+    the response falls back to the local text.
+    """
+    from fastapi.testclient import TestClient
+
+    from coglayer.api.app import create_app
+    from coglayer.api.deps import get_llm_provider
+
+    settings = Settings(
+        db_path=str(tmp_path / "test_coach_e2e_bad.db"),
+        coach_use_llm=True,
+    )
+    app = create_app(settings)
+
+    class ForbiddenWordProvider:
+        def complete(self, request: LLMRequest) -> LLMResponse:
+            return LLMResponse(
+                text="Your profile shows no sign of a cognitive disorder at all. Keep it up!"
+            )
+
+    app.dependency_overrides[get_llm_provider] = lambda: ForbiddenWordProvider()
+    client = TestClient(app)
+
+    user_id = "user_e2e_forbidden"
+    client.post("/v1/assessment/consent", json={"user_id": user_id})
+    s_id = client.post("/v1/assessment/sessions", json={"user_id": user_id}).json()["session_id"]
+
+    # Complete both tasks to unlock the coach
+    gng = [
+        {
+            "stimulus": "go",
+            "expected": "press",
+            "response": "press",
+            "rt_ms": 200.0,
+            "timestamp": "2024-01-15T10:00:00+00:00",
+        }
+    ]
+    span = [
+        {
+            "stimulus": "0,1",
+            "expected": "0,1",
+            "response": "0,1",
+            "rt_ms": 1000.0,
+            "timestamp": "2024-01-15T10:00:10+00:00",
+            "length": 2,
+        }
+    ]
+    client.post(
+        "/v1/assessment/tasks/go_no_go/submit",
+        json={"session_id": s_id, "user_id": user_id, "raw_result": {"trials": gng}},
+    )
+    client.post(
+        "/v1/assessment/tasks/sequence_span/submit",
+        json={"session_id": s_id, "user_id": user_id, "raw_result": {"sequences": span}},
+    )
+
+    resp = client.post(f"/v1/assessment/coach/{user_id}")
+    assert resp.status_code == 200
+    text = resp.text
+
+    # Must fall back to local text (no forbidden word, contains disclaimer and local wording)
+    assert "disorder" not in text.lower()
+    assert _DISCLAIMER in text
+    assert "suggests" in text.lower()
+    assert re.search(r"\bis\b", text, re.IGNORECASE) is None
