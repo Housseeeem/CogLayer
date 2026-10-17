@@ -26,6 +26,7 @@ from coglayer.core.models import (
     DimensionEstimate,
     EngineDecision,
     Evidence,
+    Reading,
     Session,
     SessionStatus,
     Signal,
@@ -96,6 +97,9 @@ def _task_descriptor_dict(**overrides: object) -> dict:
         "instructions": "Press when you see Go.",
         "target_dimensions": ["response_inhibition"],
         "parameters": {"n_trials": 20, "isi_ms": 800},
+        "readings": [
+            {"metric": "nogo_accuracy", "dimension": "response_inhibition", "status": "profile"}
+        ],
     }
     base.update(overrides)
     return base
@@ -504,3 +508,105 @@ def test_llm_request_response_models() -> None:
     resp = LLMResponse(text="feedback text")
     assert resp.text == "feedback text"
     assert LLMResponse.model_validate_json(resp.model_dump_json()).text == "feedback text"
+
+
+# ---------------------------------------------------------------------------
+# Step 5 — Interpretation rules and Reading model tests
+# ---------------------------------------------------------------------------
+
+
+def test_real_task_descriptors_have_exactly_one_profile_reading() -> None:
+    """Descriptor of each real task has exactly one profile reading for its target dimension.
+
+    Hand-derived:
+      go_no_go:
+        target_dimensions: ['response_inhibition']
+        readings:
+          nogo_accuracy -> response_inhibition [profile]
+          go_accuracy -> engagement [quality]
+          omission_errors -> engagement [quality]
+          mean_rt_ms -> speed [observation, caveat]
+          rt_std_ms -> attention_regularity [observation, caveat]
+        primary_metric derived: 'nogo_accuracy'
+
+      sequence_span:
+        target_dimensions: ['sequential_visual_memory']
+        readings:
+          correct_sequences_ratio -> sequential_visual_memory [profile]
+          completeness -> engagement [quality]
+          mean_rt_ms -> speed [observation, caveat]
+        primary_metric derived: 'correct_sequences_ratio'
+    """
+    from coglayer.core.tasks import GO_NO_GO_DESCRIPTOR, SEQUENCE_SPAN_DESCRIPTOR
+
+    # go_no_go
+    gng_profiles = [r for r in GO_NO_GO_DESCRIPTOR.readings if r.status == "profile"]
+    assert len(gng_profiles) == 1
+    assert gng_profiles[0].metric == "nogo_accuracy"
+    assert gng_profiles[0].dimension == "response_inhibition"
+    assert GO_NO_GO_DESCRIPTOR.primary_metric == "nogo_accuracy"
+    assert len(GO_NO_GO_DESCRIPTOR.readings) == 5
+
+    # sequence_span
+    span_profiles = [r for r in SEQUENCE_SPAN_DESCRIPTOR.readings if r.status == "profile"]
+    assert len(span_profiles) == 1
+    assert span_profiles[0].metric == "correct_sequences_ratio"
+    assert span_profiles[0].dimension == "sequential_visual_memory"
+    assert SEQUENCE_SPAN_DESCRIPTOR.primary_metric == "correct_sequences_ratio"
+    assert len(SEQUENCE_SPAN_DESCRIPTOR.readings) == 3
+
+
+def test_readings_validator_rejects_duplicate_profile_reading_per_dimension() -> None:
+    """Validator rejects two status='profile' readings for one dimension.
+
+    Hand-derived:
+      target_dimensions: ['dim_a']
+      readings:
+        m1 -> dim_a [profile]
+        m2 -> dim_a [profile]
+      Must raise ValidationError because only 1 profile reading per dimension is allowed.
+    """
+    with pytest.raises(ValidationError, match="profile"):
+        TaskDescriptor(
+            task_id="dup_profile",
+            version="1.0",
+            instructions="Test",
+            target_dimensions=["dim_a"],
+            parameters={},
+            readings=[
+                Reading(metric="m1", dimension="dim_a", status="profile"),
+                Reading(metric="m2", dimension="dim_a", status="profile"),
+            ],
+        )
+
+
+def test_reading_without_status_rejected() -> None:
+    """Pydantic rejects a Reading without a valid status.
+
+    Hand-derived:
+      status is required and must be Literal['profile', 'observation', 'quality'].
+    """
+    with pytest.raises(ValidationError):
+        Reading.model_validate({"metric": "m", "dimension": "d"})  # missing status
+
+    with pytest.raises(ValidationError):
+        Reading.model_validate({"metric": "m", "dimension": "d", "status": "invalid_status"})
+
+
+def test_validator_rejects_numeric_weights_anywhere() -> None:
+    """Validator rejects numeric weights anywhere in TaskDescriptor.
+
+    Hand-derived:
+      parameters={'weight': 1.0} must raise ValidationError.
+    """
+    with pytest.raises(ValidationError, match=r"[Ww]eight"):
+        TaskDescriptor(
+            task_id="weighted_task",
+            version="1.0",
+            instructions="Test",
+            target_dimensions=["dim_a"],
+            parameters={"weight": 1.0},
+            readings=[
+                Reading(metric="m1", dimension="dim_a", status="profile"),
+            ],
+        )

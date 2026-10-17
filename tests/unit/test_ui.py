@@ -85,6 +85,23 @@ def test_profile_page_renders(mock_st: MagicMock, mock_get: MagicMock) -> None:
     assert mock_st.warning.called
 
 
+def test_profile_formatting_functions() -> None:
+    """Test format_observations and format_uncertainty_interval with hand-derived values.
+
+    Hand-derived:
+      - 1 observation -> "1 session"
+      - 2 observations -> "2 sessions"
+      - lower=0.52, upper=0.88 -> "52% - 88%"
+      - lower=0.50, upper=0.90 -> "50% - 90%"
+    """
+    from coglayer.ui.pages.profile import format_observations, format_uncertainty_interval
+
+    assert format_observations(1) == "1 session"
+    assert format_observations(2) == "2 sessions"
+    assert format_uncertainty_interval(0.52, 0.88) == "52% - 88%"
+    assert format_uncertainty_interval(0.50, 0.90) == "50% - 90%"
+
+
 @patch("coglayer.ui.pages.coach.httpx.post")
 @patch("coglayer.ui.pages.coach.st")
 def test_coach_page_renders(mock_st: MagicMock, mock_post: MagicMock) -> None:

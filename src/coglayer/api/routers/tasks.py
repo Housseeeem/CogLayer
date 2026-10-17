@@ -80,6 +80,7 @@ def submit_task_result(
     profile_repo: Annotated[ProfileRepository, Depends(get_profile_repo)],
     profile_service: Annotated[ProfileService, Depends(get_profile_service)],
     scorers: Annotated[dict[str, ScoringAdapter], Depends(get_scoring_adapters)],
+    registry: Annotated[TaskRegistry, Depends(get_task_registry)],
 ) -> TaskResult:
     """Submit raw task result, score it, persist result and update profile.
 
@@ -125,6 +126,13 @@ def submit_task_result(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"Error scoring task result: {e}",
         ) from e
+
+    # 5.5 Check task_version registration
+    try:
+        registry.get(task_id, result.task_version)
+    except KeyError:
+        if "unknown_task_version" not in result.data_quality.anomalies:
+            result.data_quality.anomalies.append("unknown_task_version")
 
     # 6. Compute updated profile (pure computation) BEFORE save_result
     updated_profile: CognitiveProfile | None = None

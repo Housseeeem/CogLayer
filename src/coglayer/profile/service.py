@@ -67,12 +67,12 @@ def derive_dimension_mapping_from_descriptors(
     """Derive task-to-dimension mappings from task descriptors (single source of truth)."""
     mapping: dict[str, list[DimMapping]] = {}
     for desc in descriptors:
-        primary = desc.primary_metric or str(desc.parameters.get("primary_metric", ""))
+        primary = desc.primary_metric
         if not primary:
             continue
         weight_val = desc.parameters.get("weight", 1.0)
         weight = float(weight_val) if isinstance(weight_val, (int, float, str)) else 1.0
-        count_m = str(desc.parameters.get("count_metric", ""))
+        count_m = desc.count_metric or str(desc.parameters.get("count_metric", ""))
         entries: list[DimMapping] = []
         for dim in desc.target_dimensions:
             entries.append((dim, primary, weight, count_m))
@@ -161,20 +161,22 @@ class ProfileService:
             try:
                 desc = self._registry.get(result.task_id, result.task_version)
             except KeyError:
-                try:
-                    desc = self._registry.get(result.task_id, "1.0")
-                except KeyError:
-                    desc = None
+                if "unknown_task_version" not in result.data_quality.anomalies:
+                    result.data_quality.anomalies.append("unknown_task_version")
+                return profile
             if desc is not None:
-                primary = desc.primary_metric or str(desc.parameters.get("primary_metric", ""))
+                primary = desc.primary_metric
                 weight_val = desc.parameters.get("weight", 1.0)
                 weight = float(weight_val) if isinstance(weight_val, (int, float, str)) else 1.0
-                count_m = str(desc.parameters.get("count_metric", ""))
+                count_m = desc.count_metric or str(desc.parameters.get("count_metric", ""))
                 for dim in desc.target_dimensions:
                     if primary:
                         mappings.append((dim, primary, weight, count_m))
-
-        if not mappings:
+        else:
+            if result.task_version != "1.0":
+                if "unknown_task_version" not in result.data_quality.anomalies:
+                    result.data_quality.anomalies.append("unknown_task_version")
+                return profile
             mappings = DIMENSION_MAPPING.get(result.task_id, [])
 
         if not mappings or result.data_quality.anomalies:
@@ -231,6 +233,7 @@ class ProfileService:
                         reason_code=f"{result.task_id}:{outcome_metric}",
                         task_id=result.task_id,
                         session_id=result.session_id,
+                        task_version=result.task_version,
                     )
                 )
 

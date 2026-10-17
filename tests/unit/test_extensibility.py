@@ -13,6 +13,7 @@ from coglayer.core.models import (
     CognitiveProfile,
     DataQuality,
     RawTaskResult,
+    Reading,
     TaskDescriptor,
     TaskResult,
 )
@@ -56,6 +57,9 @@ def test_ac_extensibility_third_task() -> None:
         version="1.0",
         instructions="Complete the dummy task.",
         target_dimensions=["dummy_dimension"],
+        readings=[
+            Reading(metric="dummy_score", dimension="dummy_dimension", status="profile"),
+        ],
         parameters={"trials": 10},
     )
     registry.register(dummy_descriptor)
@@ -138,7 +142,10 @@ def test_extensibility_third_task_endpoint_updates_profile(tmp_path: pathlib.Pat
         version="1.0",
         instructions="Complete the pattern match.",
         target_dimensions=["response_inhibition"],
-        parameters={"trials": 10, "primary_metric": "pattern_score"},
+        readings=[
+            Reading(metric="pattern_score", dimension="response_inhibition", status="profile"),
+        ],
+        parameters={"trials": 10},
     )
     scorer = TrivialScorer()
     registry.register(fake_descriptor, scorer=scorer)

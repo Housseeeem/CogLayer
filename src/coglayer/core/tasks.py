@@ -6,7 +6,7 @@ and primary metrics.
 
 from __future__ import annotations
 
-from coglayer.core.models import TaskDescriptor
+from coglayer.core.models import Reading, TaskDescriptor
 
 GO_NO_GO_DESCRIPTOR = TaskDescriptor(
     task_id="go_no_go",
@@ -19,14 +19,42 @@ GO_NO_GO_DESCRIPTOR = TaskDescriptor(
         "This is a non-clinical measure of response speed and inhibition."
     ),
     target_dimensions=["response_inhibition"],
-    primary_metric="nogo_accuracy",
+    count_metric="nogo_valid_count",
+    readings=[
+        Reading(
+            metric="nogo_accuracy",
+            dimension="response_inhibition",
+            status="profile",
+        ),
+        Reading(
+            metric="go_accuracy",
+            dimension="engagement",
+            status="quality",
+        ),
+        Reading(
+            metric="omission_errors",
+            dimension="engagement",
+            status="quality",
+        ),
+        Reading(
+            metric="mean_rt_ms",
+            dimension="speed",
+            status="observation",
+            caveat="design hypothesis; compare only within the same person and device",
+        ),
+        Reading(
+            metric="rt_std_ms",
+            dimension="attention_regularity",
+            status="observation",
+            caveat="design hypothesis",
+        ),
+    ],
     parameters={
         "n_practice_trials": 5,
         "n_scored_trials": 20,
         "nogo_proportion": 0.25,
         "isi_ms": 800,
         "count_metric": "nogo_valid_count",
-        "weight": 1.0,
     },
 )
 
@@ -43,7 +71,28 @@ SEQUENCE_SPAN_DESCRIPTOR = TaskDescriptor(
         "This is a non-clinical measure."
     ),
     target_dimensions=["sequential_visual_memory"],
-    primary_metric="correct_sequences_ratio",
+    count_metric="valid_sequence_count",
+    readings=[
+        Reading(
+            metric="correct_sequences_ratio",
+            dimension="sequential_visual_memory",
+            status="profile",
+        ),
+        Reading(
+            metric="completeness",
+            dimension="engagement",
+            status="quality",
+        ),
+        Reading(
+            metric="mean_rt_ms",
+            dimension="speed",
+            status="observation",
+            caveat=(
+                "design hypothesis; not comparable with the Go/No-Go mean_rt_ms "
+                "(different definition)"
+            ),
+        ),
+    ],
     parameters={
         "n_demo_sequences": 1,
         "n_practice_sequences": 2,
@@ -52,7 +101,6 @@ SEQUENCE_SPAN_DESCRIPTOR = TaskDescriptor(
         "max_length": 9,
         "max_rt_ms": 30000,
         "count_metric": "valid_sequence_count",
-        "weight": 1.0,
     },
 )
 

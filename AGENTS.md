@@ -147,3 +147,6 @@ Never skip, disable or loosen a check without an explicit instruction.
   `make test-fast TESTS=tests/unit/test_foo.py` for a fast inner loop.
 - Run the full `make check` exactly once, at the end, before committing or
   pushing. It remains the mandatory quality gate.
+- Run each command once. Reuse its output; do not re-run it unless files changed since.
+- Run git status / git log only at setup and at the final checkpoint.
+- Run make quick once per step, not after every edit.
