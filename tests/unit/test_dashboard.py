@@ -13,11 +13,14 @@ from unittest.mock import MagicMock, patch
 from coglayer.ui.dashboard import (
     build_dimension_series,
     build_history_rows,
+    build_interval_chart_data,
     build_progress_curve_data,
     build_radar_chart_data,
     build_radar_rows,
+    create_interval_chart,
     create_progress_curve,
     create_radar_chart,
+    select_overview_chart,
 )
 from coglayer.ui.pages.dashboard import render_dashboard_page
 
@@ -522,3 +525,120 @@ def test_render_dashboard_page_multi_session_and_non_clinical(
     for word in forbidden_words:
         matches = re.findall(rf"\b{word}\b", combined_text, flags=re.IGNORECASE)
         assert len(matches) == 0, f"Forbidden word '{word}' found in rendered UI text: {matches}"
+
+
+def test_chart_selection_and_interval_chart() -> None:
+    """Selector returns interval chart for < 3 dimensions and radar for >= 3 dimensions.
+
+    Hand-derived:
+      - 2 dimensions input in alphabetical order:
+        'response_inhibition' (mean=0.857, lower=0.62, upper=0.98, n_sessions=2)
+        'sequential_visual_memory' (mean=0.650, lower=0.45, upper=0.85, n_sessions=1)
+      - With 2 dimensions (< 3), selector returns chart type 'interval'.
+      - In interval chart data, mean 0.857 with bounds 0.62 and 0.98 stays unchanged:
+        Row 0: dimension='response_inhibition', label='Response Inhibition (2 sessions)',
+               mean=0.857, lower=0.62, upper=0.98, n_sessions=2
+        Row 1: dimension='sequential_visual_memory', label='Sequential Visual Memory (1 session)',
+               mean=0.650, lower=0.45, upper=0.85, n_sessions=1
+      - Interval chart Altair object is created.
+      - With 3 dimensions (adding 'spatial_attention'), selector returns 'radar' chart.
+    """
+    two_dim_rows = [
+        {
+            "dimension": "response_inhibition",
+            "lower": 0.62,
+            "mean": 0.857,
+            "upper": 0.98,
+            "n_sessions": 2,
+        },
+        {
+            "dimension": "sequential_visual_memory",
+            "lower": 0.45,
+            "mean": 0.650,
+            "upper": 0.85,
+            "n_sessions": 1,
+        },
+    ]
+
+    # Test 2 dimensions -> interval chart
+    chart_type, chart = select_overview_chart(two_dim_rows)
+    assert chart_type == "interval"
+    assert chart is not None
+    assert create_interval_chart(two_dim_rows) is not None
+
+    interval_data = build_interval_chart_data(two_dim_rows)
+    assert len(interval_data) == 2
+    assert interval_data[0] == {
+        "dimension": "response_inhibition",
+        "label": "Response Inhibition (2 sessions)",
+        "lower": 0.62,
+        "mean": 0.857,
+        "upper": 0.98,
+        "n_sessions": 2,
+    }
+    assert interval_data[1] == {
+        "dimension": "sequential_visual_memory",
+        "label": "Sequential Visual Memory (1 session)",
+        "lower": 0.45,
+        "mean": 0.650,
+        "upper": 0.85,
+        "n_sessions": 1,
+    }
+
+    # Test 3 dimensions -> radar chart
+    three_dim_rows = [
+        *two_dim_rows,
+        {
+            "dimension": "spatial_attention",
+            "lower": 0.30,
+            "mean": 0.50,
+            "upper": 0.70,
+            "n_sessions": 4,
+        },
+    ]
+    chart_type_3, chart_3 = select_overview_chart(three_dim_rows)
+    assert chart_type_3 == "radar"
+    assert chart_3 is not None
+
+
+@patch("coglayer.ui.pages.dashboard.httpx.get")
+@patch("coglayer.ui.pages.dashboard.st")
+def test_render_dashboard_page_fewer_than_three_dimensions_caption(
+    mock_st: MagicMock, mock_get: MagicMock
+) -> None:
+    """When < 3 dimensions, dashboard displays caption that radar appears at >= 3 dimensions.
+
+    Hand-derived:
+      - 2 dimensions in profile.
+      - Caption must state that the radar chart appears once at least 3 dimensions are profiled.
+    """
+    mock_get.return_value = MagicMock(
+        status_code=200,
+        json=lambda: {
+            "dimensions": {
+                "response_inhibition": {
+                    "dimension": "response_inhibition",
+                    "lower": 0.62,
+                    "mean": 0.857,
+                    "upper": 0.98,
+                    "n_evidence": 2,
+                },
+                "sequential_visual_memory": {
+                    "dimension": "sequential_visual_memory",
+                    "lower": 0.45,
+                    "mean": 0.65,
+                    "upper": 0.85,
+                    "n_evidence": 1,
+                },
+            },
+            "evidence_history": [],
+        },
+    )
+
+    render_dashboard_page("http://testserver", "user_1")
+
+    caption_calls = [call[0][0] for call in mock_st.caption.call_args_list if call[0]]
+    radar_threshold_caption = any(
+        "radar" in text.lower() and "3 dimensions" in text.lower() for text in caption_calls
+    )
+    assert radar_threshold_caption, f"Caption about 3 dimensions not found in: {caption_calls}"

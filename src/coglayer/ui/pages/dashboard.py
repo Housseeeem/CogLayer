@@ -16,7 +16,7 @@ from coglayer.ui.dashboard import (
     build_progress_curve_data,
     build_radar_rows,
     create_progress_curve,
-    create_radar_chart,
+    select_overview_chart,
 )
 
 DISCLAIMER_TEXT = "Based on these two tasks only — not a clinical assessment."
@@ -66,14 +66,19 @@ def render_dashboard_page(api_url: str, user_id: str) -> None:
     # Check total sessions count across dimensions
     total_sessions = max((r.get("n_sessions", 0) for r in radar_rows), default=0)
 
-    # 3. Radar chart section
+    # 3. Overview chart section
     st.subheader("Cognitive Dimensions Overview")
-    st.markdown(
-        "The radar chart displays Bayesian posterior estimates in fixed alphabetical order. "
-        "The dashed outer and inner bounds visualize 90% credible intervals."
-    )
-    radar_chart = create_radar_chart(radar_rows)
-    st.altair_chart(radar_chart, use_container_width=True)
+    chart_type, overview_chart = select_overview_chart(radar_rows)
+    if chart_type == "interval":
+        st.markdown("Posterior estimates and 90% credible intervals in fixed alphabetical order.")
+        st.altair_chart(overview_chart, use_container_width=True)
+        st.caption("The radar chart appears once at least 3 dimensions are profiled.")
+    else:
+        st.markdown(
+            "The radar chart displays Bayesian posterior estimates in fixed alphabetical order. "
+            "The dashed outer and inner bounds visualize 90% credible intervals."
+        )
+        st.altair_chart(overview_chart, use_container_width=True)
 
     st.divider()
 
