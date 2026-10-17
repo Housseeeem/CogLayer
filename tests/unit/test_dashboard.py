@@ -11,8 +11,10 @@ from __future__ import annotations
 from coglayer.ui.dashboard import (
     build_dimension_series,
     build_history_rows,
+    build_progress_curve_data,
     build_radar_chart_data,
     build_radar_rows,
+    create_progress_curve,
     create_radar_chart,
 )
 
@@ -231,3 +233,80 @@ def test_radar_chart_layers_and_no_sorting() -> None:
     # Verify chart object creation
     chart = create_radar_chart(radar_rows)
     assert chart is not None
+
+
+def test_progress_curve_and_history_data() -> None:
+    """Progress curve data has 1 point per session per dimension with y in [0, 1].
+
+    Hand-derived:
+      - 2 sessions, 2 tasks/dimensions per session:
+        Session 1: response_inhibition = 0.85, sequential_visual_memory = 0.50
+        Session 2: response_inhibition = 0.95, sequential_visual_memory = 0.70
+      - Progress rows for response_inhibition:
+        [{session_index: 1, outcome: 0.85}, {session_index: 2, outcome: 0.95}]
+      - Progress rows for sequential_visual_memory:
+        [{session_index: 1, outcome: 0.50}, {session_index: 2, outcome: 0.70}]
+      - All outcome values in [0, 1].
+      - History rows are sorted most recent first (session 2 before session 1).
+    """
+    profile = {
+        "evidence_history": [
+            {
+                "dimension": "response_inhibition",
+                "outcome": 0.85,
+                "timestamp": "2026-10-17T09:00:00Z",
+                "session_id": "sess_1",
+                "task_id": "go_no_go",
+            },
+            {
+                "dimension": "sequential_visual_memory",
+                "outcome": 0.50,
+                "timestamp": "2026-10-17T09:05:00Z",
+                "session_id": "sess_1",
+                "task_id": "sequence_span",
+            },
+            {
+                "dimension": "response_inhibition",
+                "outcome": 0.95,
+                "timestamp": "2026-10-17T14:00:00Z",
+                "session_id": "sess_2",
+                "task_id": "go_no_go",
+            },
+            {
+                "dimension": "sequential_visual_memory",
+                "outcome": 0.70,
+                "timestamp": "2026-10-17T14:05:00Z",
+                "session_id": "sess_2",
+                "task_id": "sequence_span",
+            },
+        ]
+    }
+
+    progress_rows = build_progress_curve_data(profile)
+    assert len(progress_rows) == 4
+
+    ri_points = [r for r in progress_rows if r["dimension"] == "response_inhibition"]
+    svm_points = [r for r in progress_rows if r["dimension"] == "sequential_visual_memory"]
+
+    assert len(ri_points) == 2
+    assert ri_points[0]["session_index"] == 1 and ri_points[0]["outcome"] == 0.85
+    assert ri_points[1]["session_index"] == 2 and ri_points[1]["outcome"] == 0.95
+
+    assert len(svm_points) == 2
+    assert svm_points[0]["session_index"] == 1 and svm_points[0]["outcome"] == 0.50
+    assert svm_points[1]["session_index"] == 2 and svm_points[1]["outcome"] == 0.70
+
+    for pt in progress_rows:
+        assert 0.0 <= pt["outcome"] <= 1.0
+
+    # Chart creation
+    chart = create_progress_curve(progress_rows)
+    assert chart is not None
+
+    # History rows: 4 items, most recent first
+    hist_rows = build_history_rows(profile)
+    assert len(hist_rows) == 4
+    assert hist_rows[0]["session_id"] == "sess_2" and hist_rows[0]["task_id"] == "sequence_span"
+    assert hist_rows[1]["session_id"] == "sess_2" and hist_rows[1]["task_id"] == "go_no_go"
+    assert hist_rows[2]["session_id"] == "sess_1" and hist_rows[2]["task_id"] == "sequence_span"
+    assert hist_rows[3]["session_id"] == "sess_1" and hist_rows[3]["task_id"] == "go_no_go"

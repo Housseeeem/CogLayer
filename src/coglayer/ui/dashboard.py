@@ -265,3 +265,68 @@ def create_radar_chart(radar_rows: list[dict[str, Any]]) -> alt.LayerChart | alt
     )
 
     return cast(alt.LayerChart | alt.Chart, combined)
+
+
+def build_progress_curve_data(profile: dict[str, Any]) -> list[dict[str, Any]]:
+    """Build progress curve points per dimension across completed sessions.
+
+    Outcomes are sorted chronologically. Each point contains:
+    - dimension: dimension identifier
+    - session_index: 1-indexed session count for this dimension
+    - outcome: normalized primary metric of the task in that session in [0, 1]
+    - timestamp: ISO timestamp
+    """
+    history = profile.get("evidence_history", [])
+    if not isinstance(history, list) or not history:
+        return []
+
+    sorted_ev = sorted(
+        [ev for ev in history if isinstance(ev, dict) and "outcome" in ev],
+        key=lambda ev: str(ev.get("timestamp", "")),
+    )
+
+    counts: dict[str, int] = {}
+    rows: list[dict[str, Any]] = []
+    for ev in sorted_ev:
+        dim = str(ev.get("dimension", ""))
+        if not dim:
+            continue
+        counts[dim] = counts.get(dim, 0) + 1
+        rows.append(
+            {
+                "dimension": dim,
+                "session_index": counts[dim],
+                "outcome": float(ev["outcome"]),
+                "timestamp": str(ev.get("timestamp", "")),
+            }
+        )
+    return rows
+
+
+def create_progress_curve(progress_rows: list[dict[str, Any]]) -> alt.Chart:
+    """Create an Altair line chart showing raw outcome progress across sessions.
+
+    One line per dimension, x = session index, y in [0, 1].
+    Uncertainty intervals are NOT drawn because these are individual raw session outcomes.
+    """
+    if not progress_rows:
+        empty = alt.Chart({"values": [{"text": "No data"}]}).mark_text(
+            text="No assessment session history available yet."
+        )
+        return cast(alt.Chart, empty)
+
+    chart = (
+        alt.Chart({"values": progress_rows})
+        .mark_line(point=True)
+        .encode(
+            x=alt.X("session_index:O", title="Session"),
+            y=alt.Y(
+                "outcome:Q",
+                scale=alt.Scale(domain=[0.0, 1.0]),
+                title="Outcome Score (0 - 1)",
+            ),
+            color=alt.Color("dimension:N", title="Dimension"),
+        )
+        .properties(width=500, height=280)
+    )
+    return cast(alt.Chart, chart)
