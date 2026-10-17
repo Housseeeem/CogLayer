@@ -12,6 +12,19 @@ import httpx
 import streamlit as st
 
 
+def format_observations(n_sessions: int) -> str:
+    """Format observations label to clearly state it counts sessions, not individual trials."""
+    unit = "session" if n_sessions == 1 else "sessions"
+    return f"{n_sessions} {unit}"
+
+
+def format_uncertainty_interval(lower: float, upper: float) -> str:
+    """Format uncertainty as a two-sided lower-upper interval using stored bounds."""
+    lower_pct = round(lower * 100)
+    upper_pct = round(upper * 100)
+    return f"{lower_pct}% - {upper_pct}%"
+
+
 def render_profile_page(api_url: str, user_id: str) -> None:
     """Render the cognitive profile dashboard."""
     st.header("Cognitive Profile")
@@ -47,8 +60,6 @@ def render_profile_page(api_url: str, user_id: str) -> None:
 
     cols = st.columns(len(dimensions))
     for i, (dim_name, est) in enumerate(dimensions.items()):
-        lower_pct = round(est["lower"] * 100)
-        upper_pct = round(est["upper"] * 100)
         mean_pct = round(est["mean"] * 100)
         n_obs = est.get("n_evidence", 1)
 
@@ -59,9 +70,12 @@ def render_profile_page(api_url: str, user_id: str) -> None:
 
         with cols[i]:
             st.subheader(pretty_name)
-            st.metric(label="Credible Range (90% CI)", value=f"{lower_pct}% - {upper_pct}%")
+            st.metric(
+                label="Uncertainty (90% CI)",
+                value=format_uncertainty_interval(est["lower"], est["upper"]),
+            )
             st.caption(f"Posterior Mean: **{mean_pct}%**")
-            st.caption(f"Observations: **{n_obs}**")
+            st.caption(f"Observations (completed sessions): **{format_observations(n_obs)}**")
             st.caption(f"Data Completeness: **{comp_pct}%**")
 
     st.divider()
