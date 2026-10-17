@@ -642,3 +642,46 @@ def test_render_dashboard_page_fewer_than_three_dimensions_caption(
         "radar" in text.lower() and "3 dimensions" in text.lower() for text in caption_calls
     )
     assert radar_threshold_caption, f"Caption about 3 dimensions not found in: {caption_calls}"
+
+
+def test_progress_curve_chart_spec() -> None:
+    """Progress curve Altair chart spec satisfies visual readability requirements.
+
+    Hand-derived:
+      - Y-scale domain must be [0.0, 1.05] so 1.0 outcomes are not clipped.
+      - X-axis session labels must be horizontal (labelAngle == 0) with integer ticks
+        (tickMinStep == 1, format == 'd').
+      - Distinct visual encodings per dimension: color and shape (or strokeDash).
+      - Tooltip must include 'session_index', 'dimension', and 'outcome'.
+    """
+    rows = [
+        {"dimension": "response_inhibition", "session_index": 1, "outcome": 0.85},
+        {"dimension": "response_inhibition", "session_index": 2, "outcome": 1.00},
+        {"dimension": "sequential_visual_memory", "session_index": 1, "outcome": 0.60},
+        {"dimension": "sequential_visual_memory", "session_index": 2, "outcome": 0.75},
+    ]
+    chart = create_progress_curve(rows)
+    spec = chart.to_dict()
+    encoding = spec["encoding"]
+
+    # 1. Y scale domain [0, 1.05]
+    assert encoding["y"]["scale"]["domain"] == [0.0, 1.05]
+
+    # 2. X axis horizontal labels with integer ticks
+    assert encoding["x"]["axis"]["labelAngle"] == 0
+    assert encoding["x"]["axis"]["tickMinStep"] == 1
+    assert encoding["x"]["axis"]["format"] == "d"
+
+    # 3. Distinct encodings for dimension (color and shape/strokeDash)
+    assert encoding["color"]["field"] == "dimension"
+    assert "shape" in encoding or "strokeDash" in encoding
+    if "shape" in encoding:
+        assert encoding["shape"]["field"] == "dimension"
+    if "strokeDash" in encoding:
+        assert encoding["strokeDash"]["field"] == "dimension"
+
+    # 4. Tooltip with session, dimension, and outcome
+    tooltip_fields = [t["field"] for t in encoding["tooltip"]]
+    assert "session_index" in tooltip_fields
+    assert "dimension" in tooltip_fields
+    assert "outcome" in tooltip_fields

@@ -396,8 +396,9 @@ def build_progress_curve_data(profile: dict[str, Any]) -> list[dict[str, Any]]:
 def create_progress_curve(progress_rows: list[dict[str, Any]]) -> alt.Chart:
     """Create an Altair line chart showing raw outcome progress across sessions.
 
-    One line per dimension, x = session index, y in [0, 1].
-    Uncertainty intervals are NOT drawn because these are individual raw session outcomes.
+    One line per dimension, x = session index, y in [0, 1.05].
+    Different color and point shape/dash per dimension, horizontal integer ticks,
+    and interactive tooltips.
     """
     if not progress_rows:
         empty = alt.Chart({"values": [{"text": "No data"}]}).mark_text(
@@ -405,17 +406,30 @@ def create_progress_curve(progress_rows: list[dict[str, Any]]) -> alt.Chart:
         )
         return cast(alt.Chart, empty)
 
+    color_scale = alt.Scale(range=["#2563eb", "#d97706", "#059669", "#dc2626", "#7c3aed"])
+
     chart = (
         alt.Chart({"values": progress_rows})
         .mark_line(point=True)
         .encode(
-            x=alt.X("session_index:O", title="Session"),
+            x=alt.X(
+                "session_index:Q",
+                title="Session",
+                axis=alt.Axis(labelAngle=0, tickMinStep=1, format="d"),
+            ),
             y=alt.Y(
                 "outcome:Q",
-                scale=alt.Scale(domain=[0.0, 1.0]),
+                scale=alt.Scale(domain=[0.0, 1.05]),
                 title="Outcome Score (0 - 1)",
             ),
-            color=alt.Color("dimension:N", title="Dimension"),
+            color=alt.Color("dimension:N", title="Dimension", scale=color_scale),
+            shape=alt.Shape("dimension:N", title="Dimension"),
+            strokeDash=alt.StrokeDash("dimension:N", title="Dimension"),
+            tooltip=[
+                alt.Tooltip("session_index:Q", title="Session"),
+                alt.Tooltip("dimension:N", title="Dimension"),
+                alt.Tooltip("outcome:Q", title="Outcome", format=".2f"),
+            ],
         )
         .properties(width=500, height=280)
     )
