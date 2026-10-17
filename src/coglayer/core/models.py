@@ -91,6 +91,7 @@ class TaskDescriptor(BaseModel):
     instructions: str
     target_dimensions: list[str]
     parameters: dict[str, object]
+    primary_metric: str | None = None
 
 
 # ---------------------------------------------------------------------------

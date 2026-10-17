@@ -14,7 +14,13 @@ Requirements: R-002.1, R-002.5
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from coglayer.core.models import TaskDescriptor
+from coglayer.core.tasks import GO_NO_GO_DESCRIPTOR, SEQUENCE_SPAN_DESCRIPTOR
+
+if TYPE_CHECKING:
+    from coglayer.core.protocols import ScoringAdapter
 
 __all__ = [
     "InMemoryTaskRegistry",
@@ -34,8 +40,14 @@ class InMemoryTaskRegistry:
     def __init__(self) -> None:
         # Internal store: (task_id, version) → TaskDescriptor
         self._store: dict[tuple[str, str], TaskDescriptor] = {}
+        # Scorer store: task_id → ScoringAdapter
+        self._scorers: dict[str, ScoringAdapter] = {}
 
-    def register(self, descriptor: TaskDescriptor) -> None:
+    def register(
+        self,
+        descriptor: TaskDescriptor,
+        scorer: ScoringAdapter | None = None,
+    ) -> None:
         """Store a task descriptor under its ``(task_id, version)`` key.
 
         If a descriptor with the same ``(task_id, version)`` already exists it
@@ -43,9 +55,24 @@ class InMemoryTaskRegistry:
 
         Args:
             descriptor: The task descriptor to register.
+            scorer: Optional scoring adapter associated with this task.
         """
         key = (descriptor.task_id, descriptor.version)
         self._store[key] = descriptor
+        if scorer is not None:
+            self._scorers[descriptor.task_id] = scorer
+
+    def register_scorer(self, task_id: str, scorer: ScoringAdapter) -> None:
+        """Register a scoring adapter for a task_id."""
+        self._scorers[task_id] = scorer
+
+    def get_scorer(self, task_id: str) -> ScoringAdapter | None:
+        """Get the scoring adapter for task_id, if registered."""
+        return self._scorers.get(task_id)
+
+    def get_scorers(self) -> dict[str, ScoringAdapter]:
+        """Return a copy of all registered scoring adapters."""
+        return dict(self._scorers)
 
     def get(self, task_id: str, version: str) -> TaskDescriptor:
         """Retrieve a descriptor by ``task_id`` and ``version``.
@@ -78,50 +105,11 @@ class InMemoryTaskRegistry:
 
 
 # ---------------------------------------------------------------------------
-# Built-in task descriptors
+# Built-in task descriptors (referenced from core.tasks single source of truth)
 # ---------------------------------------------------------------------------
 
-_GO_NO_GO_DESCRIPTOR = TaskDescriptor(
-    task_id="go_no_go",
-    version="1.0",
-    instructions=(
-        "A series of stimuli will appear on screen. "
-        "Press the spacebar as quickly as possible when you see the Go stimulus (green circle), "
-        "but do NOT press anything when you see the No-Go stimulus (red circle). "
-        "Try to respond accurately and quickly. "
-        "This is a non-clinical measure of response speed and inhibition."
-    ),
-    target_dimensions=["response_inhibition"],
-    parameters={
-        "n_practice_trials": 5,
-        "n_scored_trials": 20,
-        "nogo_proportion": 0.25,
-        "isi_ms": 800,
-    },
-)
-
-_SEQUENCE_SPAN_DESCRIPTOR = TaskDescriptor(
-    task_id="sequence_span",
-    version="1.0",
-    instructions=(
-        "A sequence of squares will light up one at a time. "
-        "Watch the full sequence, then reproduce it by clicking the squares in the same order. "
-        "The sequences will get longer as you go. "
-        "This task measures sequential visual memory via spatial sequence reproduction. "
-        "It is used as a proxy for working-memory capacity"
-        " but does not purely measure working memory. "
-        "This is a non-clinical measure."
-    ),
-    target_dimensions=["sequential_visual_memory"],
-    parameters={
-        "n_demo_sequences": 1,
-        "n_practice_sequences": 2,
-        "starting_length": 3,
-        "increment": 1,
-        "max_length": 9,
-        "max_rt_ms": 30000,
-    },
-)
+_GO_NO_GO_DESCRIPTOR = GO_NO_GO_DESCRIPTOR
+_SEQUENCE_SPAN_DESCRIPTOR = SEQUENCE_SPAN_DESCRIPTOR
 
 
 def build_default_registry() -> InMemoryTaskRegistry:
@@ -139,7 +127,16 @@ def build_default_registry() -> InMemoryTaskRegistry:
 
     Requirements: R-002.1, R-002.5
     """
+    from coglayer.signals.go_no_go import GoNoGoScorer
+    from coglayer.signals.sequence_span import SequenceSpanScorer
+
     registry = InMemoryTaskRegistry()
-    registry.register(_GO_NO_GO_DESCRIPTOR)
-    registry.register(_SEQUENCE_SPAN_DESCRIPTOR)
+    registry.register(
+        GO_NO_GO_DESCRIPTOR,
+        scorer=GoNoGoScorer(descriptor=GO_NO_GO_DESCRIPTOR),
+    )
+    registry.register(
+        SEQUENCE_SPAN_DESCRIPTOR,
+        scorer=SequenceSpanScorer(descriptor=SEQUENCE_SPAN_DESCRIPTOR),
+    )
     return registry

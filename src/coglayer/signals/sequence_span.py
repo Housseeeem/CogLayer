@@ -15,10 +15,12 @@ from typing import Final
 from coglayer.core.models import (
     DataQuality,
     RawTaskResult,
+    TaskDescriptor,
     TaskResult,
     Trial,
 )
 from coglayer.core.settings import Settings, get_settings
+from coglayer.core.tasks import SEQUENCE_SPAN_DESCRIPTOR
 
 __all__ = [
     "SEQUENCE_TIMEOUT_MS",
@@ -45,8 +47,13 @@ class SequenceSpanScorer:
     Requirements: R-004.2, R-004.3, R-004.4
     """
 
-    def __init__(self, settings: Settings | None = None) -> None:
+    def __init__(
+        self,
+        settings: Settings | None = None,
+        descriptor: TaskDescriptor | None = None,
+    ) -> None:
         self._settings = settings
+        self._descriptor = descriptor or SEQUENCE_SPAN_DESCRIPTOR
 
     def score(self, raw: RawTaskResult) -> TaskResult:
         """Score a raw Sequence Span result.
@@ -204,7 +211,7 @@ class SequenceSpanScorer:
             trials=trials,
             metrics=metrics,
             signals=[],
-            target_dimensions=["sequential_visual_memory"],
+            target_dimensions=list(self._descriptor.target_dimensions),
             data_quality=data_quality,
             uncertainty=None,
         )

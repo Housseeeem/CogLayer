@@ -106,14 +106,29 @@ def get_llm_provider(
 
 def get_profile_service(
     settings: Annotated[Settings, Depends(get_db_settings)],
+    registry: Annotated[TaskRegistry, Depends(get_task_registry)],
 ) -> ProfileService:
-    """Return the ProfileService configured with the forgetting factor."""
-    return ProfileService(lambda_=settings.forgetting_factor)
+    """Return the ProfileService configured with forgetting factor and task registry."""
+    return ProfileService(
+        lambda_=settings.forgetting_factor,
+        registry=registry,
+    )
 
 
-def get_scoring_adapters() -> dict[str, ScoringAdapter]:
-    """Return built-in task scoring adapters."""
-    return {
-        "go_no_go": GoNoGoScorer(),
-        "sequence_span": SequenceSpanScorer(),
-    }
+def get_scoring_adapters(
+    registry: Annotated[TaskRegistry, Depends(get_task_registry)],
+) -> dict[str, ScoringAdapter]:
+    """Return task scoring adapters built from the task registry."""
+    if hasattr(registry, "get_scorers"):
+        return registry.get_scorers()  # type: ignore[no-any-return]
+    adapters: dict[str, ScoringAdapter] = {}
+    for task_id in registry.list_ids():
+        try:
+            desc = registry.get(task_id, "1.0")
+            if task_id == "go_no_go":
+                adapters[task_id] = GoNoGoScorer(descriptor=desc)
+            elif task_id == "sequence_span":
+                adapters[task_id] = SequenceSpanScorer(descriptor=desc)
+        except KeyError:
+            continue
+    return adapters

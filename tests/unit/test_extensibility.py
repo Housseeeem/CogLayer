@@ -6,6 +6,8 @@ require any changes to signals, profile, or coach source code.
 
 from __future__ import annotations
 
+import pathlib
+
 from coglayer.coach.decision import AdaptiveDecisionEngine
 from coglayer.core.models import (
     CognitiveProfile,
@@ -85,3 +87,87 @@ def test_ac_extensibility_third_task() -> None:
     # ignores it without raising any exceptions
     updated_profile = profile_service.update_from_result(profile, dummy_result)
     assert isinstance(updated_profile, CognitiveProfile)
+
+
+class TrivialScorer:
+    """Trivial ScoringAdapter for the fake third task."""
+
+    def score(self, raw: RawTaskResult) -> TaskResult:
+        raw_val = raw.get("score", 0.85)
+        score_val = float(raw_val) if isinstance(raw_val, (int, float, str)) else 0.85
+        return TaskResult(
+            task_id="fake_pattern_task",
+            task_version="1.0",
+            session_id=str(raw["session_id"]),
+            user_id=str(raw["user_id"]),
+            trials=[],
+            metrics={"pattern_score": score_val},
+            signals=[],
+            target_dimensions=["response_inhibition"],
+            data_quality=DataQuality(
+                valid_trials=10,
+                total_trials=10,
+                completeness=1.0,
+                anomalies=[],
+            ),
+            uncertainty=0.1,
+        )
+
+
+def test_extensibility_third_task_endpoint_updates_profile(tmp_path: pathlib.Path) -> None:
+    """Submit third task through real submit endpoint updates profile for declared dimension.
+
+    Expected derived by hand:
+    - fake_pattern_task declares target_dimensions=["response_inhibition"] and metric pattern_score.
+    - Score is 0.85.
+    - Profile response_inhibition dimension is updated, evidence recorded for pattern_score.
+    """
+    from fastapi.testclient import TestClient
+
+    from coglayer.api.app import create_app
+    from coglayer.api.deps import get_task_registry
+    from coglayer.signals.registry import build_default_registry
+
+    db_file = str(tmp_path / "test_ext.db")
+    settings = Settings(db_path=db_file)
+    app = create_app(settings)
+
+    registry = build_default_registry()
+    fake_descriptor = TaskDescriptor(
+        task_id="fake_pattern_task",
+        version="1.0",
+        instructions="Complete the pattern match.",
+        target_dimensions=["response_inhibition"],
+        parameters={"trials": 10, "primary_metric": "pattern_score"},
+    )
+    scorer = TrivialScorer()
+    registry.register(fake_descriptor, scorer=scorer)
+
+    app.dependency_overrides[get_task_registry] = lambda: registry
+
+    client = TestClient(app)
+    user_id = "u_third"
+    client.post("/v1/assessment/consent", json={"user_id": user_id})
+    session_id = client.post("/v1/assessment/sessions", json={"user_id": user_id}).json()[
+        "session_id"
+    ]
+
+    resp = client.post(
+        "/v1/assessment/tasks/fake_pattern_task/submit",
+        json={
+            "session_id": session_id,
+            "user_id": user_id,
+            "raw_result": {"score": 0.85},
+        },
+    )
+    assert resp.status_code == 200
+
+    prof_resp = client.get(f"/v1/assessment/profile/{user_id}")
+    assert prof_resp.status_code == 200
+    profile = prof_resp.json()
+
+    # The profile for response_inhibition must be updated using pattern_score
+    assert "response_inhibition" in profile["dimensions"]
+    assert profile["dimensions"]["response_inhibition"]["mean"] > 0.5
+    evidence_codes = [ev["reason_code"] for ev in profile["evidence_history"]]
+    assert "fake_pattern_task:pattern_score" in evidence_codes

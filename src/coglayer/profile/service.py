@@ -30,6 +30,7 @@ Requirements: R-006.1, R-006.2, R-006.3
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from datetime import UTC, datetime
 from typing import Final
 
@@ -37,11 +38,19 @@ from coglayer.core.models import (
     CognitiveProfile,
     DimensionEstimate,
     Evidence,
+    TaskDescriptor,
     TaskResult,
 )
+from coglayer.core.protocols import TaskRegistry
+from coglayer.core.tasks import DEFAULT_TASK_DESCRIPTORS
 from coglayer.profile.model import DEFAULT_FORGETTING_FACTOR, BetaProfileModel
 
-__all__ = ["DIMENSION_MAPPING", "ProfileService"]
+__all__ = [
+    "DIMENSION_MAPPING",
+    "ProfileService",
+    "derive_dimension_mapping",
+    "derive_dimension_mapping_from_descriptors",
+]
 
 # ---------------------------------------------------------------------------
 # Dimension mapping
@@ -50,20 +59,45 @@ __all__ = ["DIMENSION_MAPPING", "ProfileService"]
 # Each entry: task_id -> list of (dimension, outcome_metric, weight, count_metric)
 # weight scales n_eff = weight * min(count, MAX_PSEUDO_COUNT).
 DimMapping = tuple[str, str, float, str]
-DIMENSION_MAPPING: Final[dict[str, list[DimMapping]]] = {
-    "go_no_go": [
-        # response_inhibition: outcome = nogo_accuracy, count = nogo_valid_count.
-        # Uses nogo_accuracy (not overall accuracy) to isolate inhibition from RT.
-        # count = nogo_valid_count so sessions with more No-Go trials contribute more.
-        ("response_inhibition", "nogo_accuracy", 1.0, "nogo_valid_count"),
-    ],
-    "sequence_span": [
-        # sequential_visual_memory: outcome = correct_sequences_ratio,
-        # count = valid_sequence_count.
-        # Fraction of sequences recalled in full directly measures span.
-        ("sequential_visual_memory", "correct_sequences_ratio", 1.0, "valid_sequence_count"),
-    ],
-}
+
+
+def derive_dimension_mapping_from_descriptors(
+    descriptors: Iterable[TaskDescriptor],
+) -> dict[str, list[DimMapping]]:
+    """Derive task-to-dimension mappings from task descriptors (single source of truth)."""
+    mapping: dict[str, list[DimMapping]] = {}
+    for desc in descriptors:
+        primary = desc.primary_metric or str(desc.parameters.get("primary_metric", ""))
+        if not primary:
+            continue
+        weight_val = desc.parameters.get("weight", 1.0)
+        weight = float(weight_val) if isinstance(weight_val, (int, float, str)) else 1.0
+        count_m = str(desc.parameters.get("count_metric", ""))
+        entries: list[DimMapping] = []
+        for dim in desc.target_dimensions:
+            entries.append((dim, primary, weight, count_m))
+        if entries:
+            mapping[desc.task_id] = entries
+    return mapping
+
+
+def derive_dimension_mapping(
+    registry: TaskRegistry,
+) -> dict[str, list[DimMapping]]:
+    """Derive dimension mappings from a TaskRegistry."""
+    descriptors: list[TaskDescriptor] = []
+    for task_id in registry.list_ids():
+        try:
+            descriptors.append(registry.get(task_id, "1.0"))
+        except KeyError:
+            continue
+    return derive_dimension_mapping_from_descriptors(descriptors)
+
+
+# Derived from DEFAULT_TASK_DESCRIPTORS (no duplicated literals)
+DIMENSION_MAPPING: Final[dict[str, list[DimMapping]]] = derive_dimension_mapping_from_descriptors(
+    DEFAULT_TASK_DESCRIPTORS
+)
 
 
 # ---------------------------------------------------------------------------
@@ -80,10 +114,17 @@ class ProfileService:
     ----------
     lambda_ :
         Forgetting factor passed to BetaProfileModel.  Default 0.98.
+    registry :
+        Optional TaskRegistry to look up descriptors dynamically.
     """
 
-    def __init__(self, lambda_: float = DEFAULT_FORGETTING_FACTOR) -> None:
+    def __init__(
+        self,
+        lambda_: float = DEFAULT_FORGETTING_FACTOR,
+        registry: TaskRegistry | None = None,
+    ) -> None:
         self._lambda = lambda_
+        self._registry = registry
 
     # ------------------------------------------------------------------
     # Public interface
@@ -96,7 +137,7 @@ class ProfileService:
     ) -> CognitiveProfile:
         """Return an updated profile incorporating evidence from *result*.
 
-        Only dimensions registered in DIMENSION_MAPPING for
+        Only dimensions registered in the task descriptor or DIMENSION_MAPPING for
         ``result.task_id`` are updated.  Unknown task_ids are silently
         ignored.  If count == 0 for a dimension, that dimension is skipped
         (no forgetting, no Evidence record, no n_evidence increment).
@@ -114,7 +155,28 @@ class ProfileService:
             Updated profile with new dimensions, evidence_history,
             data_quality dict, and uncertainty dict.
         """
-        mappings = DIMENSION_MAPPING.get(result.task_id, [])
+        mappings: list[DimMapping] = []
+        if self._registry is not None:
+            desc: TaskDescriptor | None = None
+            try:
+                desc = self._registry.get(result.task_id, result.task_version)
+            except KeyError:
+                try:
+                    desc = self._registry.get(result.task_id, "1.0")
+                except KeyError:
+                    desc = None
+            if desc is not None:
+                primary = desc.primary_metric or str(desc.parameters.get("primary_metric", ""))
+                weight_val = desc.parameters.get("weight", 1.0)
+                weight = float(weight_val) if isinstance(weight_val, (int, float, str)) else 1.0
+                count_m = str(desc.parameters.get("count_metric", ""))
+                for dim in desc.target_dimensions:
+                    if primary:
+                        mappings.append((dim, primary, weight, count_m))
+
+        if not mappings:
+            mappings = DIMENSION_MAPPING.get(result.task_id, [])
+
         if not mappings or result.data_quality.anomalies:
             return profile
 
@@ -133,7 +195,12 @@ class ProfileService:
 
         for dimension, outcome_metric, weight, count_metric in mappings:
             raw_outcome = result.metrics.get(outcome_metric)
-            raw_count = result.metrics.get(count_metric)
+            if count_metric:
+                raw_count = result.metrics.get(count_metric)
+            elif result.data_quality.valid_trials > 0:
+                raw_count = float(result.data_quality.valid_trials)
+            else:
+                raw_count = None
 
             if raw_outcome is None or raw_count is None:
                 continue  # required metric absent — skip
