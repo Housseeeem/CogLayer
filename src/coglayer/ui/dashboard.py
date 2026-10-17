@@ -14,6 +14,96 @@ from typing import Any, cast
 import altair as alt
 
 
+def build_interval_chart_data(radar_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Build interval chart data with one row per dimension in fixed order.
+
+    Each row includes:
+    - dimension: dimension identifier
+    - label: formatted dimension name with session count, e.g. 'Response Inhibition (2 sessions)'
+    - lower: lower bound of 90% credible interval in [0, 1]
+    - mean: posterior mean in [0, 1]
+    - upper: upper bound of 90% credible interval in [0, 1]
+    - n_sessions: integer count of completed sessions
+    """
+    rows: list[dict[str, Any]] = []
+    for row in radar_rows:
+        dim_name = str(row.get("dimension", "")).replace("_", " ").title()
+        n_sess = int(row.get("n_sessions", 0))
+        unit = "session" if n_sess == 1 else "sessions"
+        label = f"{dim_name} ({n_sess} {unit})"
+        rows.append(
+            {
+                "dimension": str(row.get("dimension", "")),
+                "label": label,
+                "lower": float(row.get("lower", 0.0)),
+                "mean": float(row.get("mean", 0.0)),
+                "upper": float(row.get("upper", 0.0)),
+                "n_sessions": n_sess,
+            }
+        )
+    return rows
+
+
+def create_interval_chart(radar_rows: list[dict[str, Any]]) -> alt.LayerChart | alt.Chart:
+    """Create a horizontal interval chart with a point at the mean and a bar for the 90% interval.
+
+    Used when fewer than 3 dimensions are profiled. Fixed dimension order is preserved.
+    """
+    if not radar_rows:
+        empty = alt.Chart({"values": [{"text": "No data"}]}).mark_text(
+            text="No cognitive dimensions recorded yet."
+        )
+        return cast(alt.Chart, empty)
+
+    data = build_interval_chart_data(radar_rows)
+    dim_order = [d["label"] for d in data]
+
+    # Horizontal bar from lower to upper (90% credible interval)
+    bars = (
+        alt.Chart({"values": data})
+        .mark_bar(height=8, color="#93c5fd", cornerRadius=4)
+        .encode(
+            y=alt.Y("label:N", title=None, sort=dim_order),
+            x=alt.X(
+                "lower:Q",
+                scale=alt.Scale(domain=[0.0, 1.0]),
+                axis=alt.Axis(format="%", title="Estimate (0 - 100%)"),
+            ),
+            x2="upper:Q",
+        )
+    )
+
+    # Point at the mean
+    points = (
+        alt.Chart({"values": data})
+        .mark_point(filled=True, size=70, color="#2563eb")
+        .encode(
+            y=alt.Y("label:N", title=None, sort=dim_order),
+            x="mean:Q",
+        )
+    )
+
+    combined = (
+        alt.layer(bars, points)
+        .properties(width=480, height=max(120, len(data) * 60))
+        .configure_view(strokeWidth=0)
+    )
+    return cast(alt.LayerChart | alt.Chart, combined)
+
+
+def select_overview_chart(
+    radar_rows: list[dict[str, Any]],
+) -> tuple[str, alt.LayerChart | alt.Chart]:
+    """Select the overview chart type and Altair chart based on dimension count.
+
+    If fewer than 3 dimensions, returns ('interval', interval_chart).
+    If 3 or more dimensions, returns ('radar', radar_chart).
+    """
+    if len(radar_rows) < 3:
+        return ("interval", create_interval_chart(radar_rows))
+    return ("radar", create_radar_chart(radar_rows))
+
+
 def build_radar_rows(profile: dict[str, Any]) -> list[dict[str, Any]]:
     """Build radar rows from profile JSON in fixed alphabetical order.
 
@@ -306,8 +396,9 @@ def build_progress_curve_data(profile: dict[str, Any]) -> list[dict[str, Any]]:
 def create_progress_curve(progress_rows: list[dict[str, Any]]) -> alt.Chart:
     """Create an Altair line chart showing raw outcome progress across sessions.
 
-    One line per dimension, x = session index, y in [0, 1].
-    Uncertainty intervals are NOT drawn because these are individual raw session outcomes.
+    One line per dimension, x = session index, y in [0, 1.05].
+    Different color and point shape/dash per dimension, horizontal integer ticks,
+    and interactive tooltips.
     """
     if not progress_rows:
         empty = alt.Chart({"values": [{"text": "No data"}]}).mark_text(
@@ -315,17 +406,30 @@ def create_progress_curve(progress_rows: list[dict[str, Any]]) -> alt.Chart:
         )
         return cast(alt.Chart, empty)
 
+    color_scale = alt.Scale(range=["#2563eb", "#d97706", "#059669", "#dc2626", "#7c3aed"])
+
     chart = (
         alt.Chart({"values": progress_rows})
         .mark_line(point=True)
         .encode(
-            x=alt.X("session_index:O", title="Session"),
+            x=alt.X(
+                "session_index:Q",
+                title="Session",
+                axis=alt.Axis(labelAngle=0, tickMinStep=1, format="d"),
+            ),
             y=alt.Y(
                 "outcome:Q",
-                scale=alt.Scale(domain=[0.0, 1.0]),
+                scale=alt.Scale(domain=[0.0, 1.05]),
                 title="Outcome Score (0 - 1)",
             ),
-            color=alt.Color("dimension:N", title="Dimension"),
+            color=alt.Color("dimension:N", title="Dimension", scale=color_scale),
+            shape=alt.Shape("dimension:N", title="Dimension"),
+            strokeDash=alt.StrokeDash("dimension:N", title="Dimension"),
+            tooltip=[
+                alt.Tooltip("session_index:Q", title="Session"),
+                alt.Tooltip("dimension:N", title="Dimension"),
+                alt.Tooltip("outcome:Q", title="Outcome", format=".2f"),
+            ],
         )
         .properties(width=500, height=280)
     )
