@@ -377,3 +377,47 @@ def test_coach_feedback_empty_profile() -> None:
     provider = FakeProvider(seed=42)
     result = _COACH.generate_feedback(profile, provider)
     assert _DISCLAIMER in result
+
+
+# ---------------------------------------------------------------------------
+# Step 1: Settings and provider selection
+# ---------------------------------------------------------------------------
+
+
+def test_get_llm_provider_reads_settings() -> None:
+    """get_llm_provider returns None when coach_use_llm is False, and a provider when True.
+
+    Hand-derived:
+      Settings(coach_use_llm=False) -> None
+      Settings(coach_use_llm=True)  -> FakeProvider instance
+    """
+    from coglayer.api.deps import get_llm_provider
+
+    provider_disabled = get_llm_provider(Settings(coach_use_llm=False))
+    assert provider_disabled is None
+
+    provider_enabled = get_llm_provider(Settings(coach_use_llm=True))
+    assert provider_enabled is not None
+    assert isinstance(provider_enabled, FakeProvider)
+
+
+def test_coach_no_provider_called_when_coach_use_llm_false() -> None:
+    """When coach_use_llm is False, no LLM provider is called at all.
+
+    Tested with a provider that raises if complete() is called.
+    Hand-derived: provider raises AssertionError if invoked; call succeeds and returns local text.
+    """
+    profile = _make_profile()
+
+    class RaisingProvider:
+        def complete(self, request: LLMRequest) -> LLMResponse:
+            raise AssertionError("LLM provider must not be called when coach_use_llm is False")
+
+    # When coach_use_llm is False, generate_feedback must not call the provider
+    feedback = _COACH.generate_feedback(
+        profile,
+        provider=RaisingProvider(),
+        settings=Settings(coach_use_llm=False),
+    )
+    assert _DISCLAIMER in feedback
+    assert "Observations:" in feedback

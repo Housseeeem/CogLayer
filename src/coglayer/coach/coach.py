@@ -116,13 +116,17 @@ class CognitiveCoach:
     def generate_feedback(
         self,
         profile: CognitiveProfile,
-        provider: LLMProvider,
+        provider: LLMProvider | None = None,
+        settings: Settings | None = None,
     ) -> str:
         """Generate coaching feedback from the profile.
 
         Builds a local summary from the profile dimensions, then asks the
-        LLM provider to rewrite it in a friendly tone.  The CognitiveProfile
+        LLM provider to rewrite it in a friendly tone if enabled.  The CognitiveProfile
         object is NEVER sent to the provider.
+
+        When coach_use_llm is False or no provider is given, the local text is
+        returned directly without calling any provider.
 
         On a forbidden-word hit or a provider exception the local text is
         returned as-is and a warning is logged (without the text content).
@@ -132,7 +136,9 @@ class CognitiveCoach:
         profile :
             The user's current cognitive profile.
         provider :
-            LLM provider (FakeProvider in tests).
+            Optional LLM provider (FakeProvider in tests).
+        settings :
+            Optional application settings (coach_use_llm flag).
 
         Returns
         -------
@@ -140,6 +146,12 @@ class CognitiveCoach:
             Coaching feedback text including the disclaimer.
         """
         local_text = self._build_local_text(profile)
+
+        if settings is not None and not settings.coach_use_llm:
+            return local_text
+
+        if provider is None:
+            return local_text
 
         # Build the LLM prompt — only the local text, never the profile object
         prompt = f"{_LLM_INSTRUCTION}\n\n{local_text}"

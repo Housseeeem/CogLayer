@@ -98,8 +98,10 @@ def get_coach() -> CognitiveCoach:
 
 def get_llm_provider(
     settings: Annotated[Settings, Depends(get_db_settings)],
-) -> LLMProvider:
-    """Return the configured LLMProvider (defaults to FakeProvider)."""
+) -> LLMProvider | None:
+    """Return the configured LLMProvider or None when coach_use_llm is False."""
+    if not settings.coach_use_llm:
+        return None
     # For MVP / tests, returns FakeProvider(seed=42)
     return FakeProvider(seed=42)
 
