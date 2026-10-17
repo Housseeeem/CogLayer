@@ -11,7 +11,9 @@ from __future__ import annotations
 from coglayer.ui.dashboard import (
     build_dimension_series,
     build_history_rows,
+    build_radar_chart_data,
     build_radar_rows,
+    create_radar_chart,
 )
 
 
@@ -172,3 +174,60 @@ def test_empty_profile_returns_empty_outputs() -> None:
     assert build_radar_rows(empty_profile) == []
     assert build_dimension_series(empty_profile) == {}
     assert build_history_rows(empty_profile) == []
+
+
+def test_radar_chart_layers_and_no_sorting() -> None:
+    """Radar chart function returns chart object and preserves exact axis order across 3 layers.
+
+    Hand-derived:
+      - radar_rows passed in explicit non-alphabetical order:
+        ["spatial_attention", "working_memory", "executive_control"]
+      - build_radar_chart_data returns data for 3 layers: 'lower', 'mean', 'upper'
+      - Order of dimensions in each layer must strictly match input:
+        ["spatial_attention", "working_memory", "executive_control"] (no sorting!)
+      - Hand-derived values:
+        lower: [0.30, 0.40, 0.50]
+        mean:  [0.50, 0.60, 0.70]
+        upper: [0.70, 0.80, 0.90]
+      - create_radar_chart returns a valid Altair chart object.
+    """
+    radar_rows = [
+        {
+            "dimension": "spatial_attention",
+            "lower": 0.30,
+            "mean": 0.50,
+            "upper": 0.70,
+            "n_sessions": 4,
+        },
+        {
+            "dimension": "working_memory",
+            "lower": 0.40,
+            "mean": 0.60,
+            "upper": 0.80,
+            "n_sessions": 2,
+        },
+        {
+            "dimension": "executive_control",
+            "lower": 0.50,
+            "mean": 0.70,
+            "upper": 0.90,
+            "n_sessions": 1,
+        },
+    ]
+
+    chart_data = build_radar_chart_data(radar_rows)
+    assert set(chart_data.keys()) == {"lower", "mean", "upper"}
+
+    for layer_name in ("lower", "mean", "upper"):
+        points = chart_data[layer_name]
+        # First N points correspond to dimensions in input order
+        dims = [p["dimension"] for p in points[:3]]
+        assert dims == ["spatial_attention", "working_memory", "executive_control"]
+
+    assert [p["value"] for p in chart_data["lower"][:3]] == [0.30, 0.40, 0.50]
+    assert [p["value"] for p in chart_data["mean"][:3]] == [0.50, 0.60, 0.70]
+    assert [p["value"] for p in chart_data["upper"][:3]] == [0.70, 0.80, 0.90]
+
+    # Verify chart object creation
+    chart = create_radar_chart(radar_rows)
+    assert chart is not None

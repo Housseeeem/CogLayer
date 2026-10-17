@@ -8,7 +8,10 @@ Requirements: Layer C Dashboard
 
 from __future__ import annotations
 
-from typing import Any
+import math
+from typing import Any, cast
+
+import altair as alt
 
 
 def build_radar_rows(profile: dict[str, Any]) -> list[dict[str, Any]]:
@@ -100,3 +103,165 @@ def build_history_rows(profile: dict[str, Any]) -> list[dict[str, Any]]:
             }
         )
     return rows
+
+
+def build_radar_chart_data(radar_rows: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
+    """Compute polygon coordinates for lower, mean, and upper layers without sorting axes.
+
+    Technique: Cartesian trigonometric projection where theta_i = -pi/2 + 2*pi*i / N
+    for the i-th dimension in radar_rows, preserving the exact axis order.
+    To close the polygon for each layer, the first vertex is appended at the end.
+    """
+    n = len(radar_rows)
+    if n == 0:
+        return {"lower": [], "mean": [], "upper": []}
+
+    result: dict[str, list[dict[str, Any]]] = {"lower": [], "mean": [], "upper": []}
+
+    for layer_name in ("lower", "mean", "upper"):
+        points: list[dict[str, Any]] = []
+        for i, row in enumerate(radar_rows):
+            angle = -math.pi / 2 + (2 * math.pi * i) / n
+            val = float(row.get(layer_name, 0.0))
+            x = val * math.cos(angle)
+            y = val * math.sin(angle)
+            points.append(
+                {
+                    "dimension": str(row.get("dimension", "")),
+                    "value": val,
+                    "x": x,
+                    "y": y,
+                    "order": i,
+                    "layer": layer_name,
+                }
+            )
+        # Close polygon by appending first point
+        if points:
+            first = points[0]
+            points.append(
+                {
+                    "dimension": first["dimension"],
+                    "value": first["value"],
+                    "x": first["x"],
+                    "y": first["y"],
+                    "order": n,
+                    "layer": layer_name,
+                }
+            )
+        result[layer_name] = points
+
+    return result
+
+
+def create_radar_chart(radar_rows: list[dict[str, Any]]) -> alt.LayerChart | alt.Chart:
+    """Create an Altair radar chart with 3 layers (lower, mean, upper) and grid.
+
+    Uncertainty is explicitly visualized using two bounding polygons (lower and upper)
+    around the posterior mean polygon. No numeric weights, no ranking.
+    """
+    n = len(radar_rows)
+    if n == 0:
+        empty = alt.Chart({"values": [{"text": "No data"}]}).mark_text(
+            text="No cognitive dimensions recorded yet."
+        )
+        return cast(alt.Chart, empty)
+
+    chart_data = build_radar_chart_data(radar_rows)
+
+    # 1. Grid rings (0.25, 0.5, 0.75, 1.0)
+    grid_rows: list[dict[str, Any]] = []
+    for level in (0.25, 0.5, 0.75, 1.0):
+        ring_pts: list[dict[str, Any]] = []
+        for i in range(n):
+            angle = -math.pi / 2 + (2 * math.pi * i) / n
+            ring_pts.append(
+                {
+                    "x": level * math.cos(angle),
+                    "y": level * math.sin(angle),
+                    "order": i,
+                    "level": str(level),
+                }
+            )
+        if ring_pts:
+            ring_pts.append(
+                {
+                    "x": ring_pts[0]["x"],
+                    "y": ring_pts[0]["y"],
+                    "order": n,
+                    "level": str(level),
+                }
+            )
+        grid_rows.extend(ring_pts)
+
+    grid_chart = (
+        alt.Chart({"values": grid_rows})
+        .mark_line(color="#e2e8f0", strokeWidth=1, strokeDash=[2, 2])
+        .encode(x="x:Q", y="y:Q", detail="level:N", order="order:Q")
+    )
+
+    # 2. Spoke lines and dimension labels (with session count)
+    spoke_rows: list[dict[str, Any]] = []
+    label_rows: list[dict[str, Any]] = []
+    for i, row in enumerate(radar_rows):
+        angle = -math.pi / 2 + (2 * math.pi * i) / n
+        dim_name = str(row.get("dimension", "")).replace("_", " ").title()
+        n_sess = int(row.get("n_sessions", 0))
+        unit = "session" if n_sess == 1 else "sessions"
+        label_text = f"{dim_name} ({n_sess} {unit})"
+
+        spoke_rows.append({"x": 0.0, "y": 0.0, "spoke": i, "order": 0})
+        spoke_rows.append({"x": math.cos(angle), "y": math.sin(angle), "spoke": i, "order": 1})
+
+        label_rows.append(
+            {
+                "x": 1.15 * math.cos(angle),
+                "y": 1.15 * math.sin(angle),
+                "label": label_text,
+            }
+        )
+
+    spoke_chart = (
+        alt.Chart({"values": spoke_rows})
+        .mark_line(color="#cbd5e1", strokeWidth=1)
+        .encode(x="x:Q", y="y:Q", detail="spoke:N", order="order:Q")
+    )
+
+    label_chart = (
+        alt.Chart({"values": label_rows})
+        .mark_text(fontSize=11, fontWeight="bold", color="#475569")
+        .encode(x="x:Q", y="y:Q", text="label:N")
+    )
+
+    # 3. Uncertainty layers (upper and lower)
+    upper_chart = (
+        alt.Chart({"values": chart_data["upper"]})
+        .mark_line(color="#93c5fd", strokeWidth=1.5, strokeDash=[4, 4], point=True)
+        .encode(x="x:Q", y="y:Q", order="order:Q")
+    )
+
+    lower_chart = (
+        alt.Chart({"values": chart_data["lower"]})
+        .mark_line(color="#fca5a5", strokeWidth=1.5, strokeDash=[4, 4], point=True)
+        .encode(x="x:Q", y="y:Q", order="order:Q")
+    )
+
+    # 4. Posterior mean layer
+    mean_chart = (
+        alt.Chart({"values": chart_data["mean"]})
+        .mark_line(
+            color="#2563eb",
+            strokeWidth=2.5,
+            point=alt.OverlayMarkDef(filled=True, size=50, color="#2563eb"),
+        )
+        .encode(x="x:Q", y="y:Q", order="order:Q")
+    )
+
+    # Combine all layers
+    combined = (
+        alt.layer(grid_chart, spoke_chart, label_chart, upper_chart, lower_chart, mean_chart)
+        .properties(width=420, height=420)
+        .configure_axis(grid=False, labels=False, ticks=False, domain=False, title=None)
+        .configure_view(strokeWidth=0)
+    )
+
+    return cast(alt.LayerChart | alt.Chart, combined)
