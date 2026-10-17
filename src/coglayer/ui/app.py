@@ -15,6 +15,7 @@ import streamlit as st
 
 from coglayer.ui.pages.coach import render_coach_page
 from coglayer.ui.pages.consent import render_consent_page
+from coglayer.ui.pages.dashboard import render_dashboard_page
 from coglayer.ui.pages.go_no_go import render_go_no_go_page
 from coglayer.ui.pages.profile import render_profile_page
 from coglayer.ui.pages.sequence_span import render_sequence_span_page
@@ -52,13 +53,14 @@ def main() -> None:
 
         st.divider()
         st.write("**Navigation**")
-        pages = ["consent", "go_no_go", "sequence_span", "profile", "coach"]
+        pages = ["consent", "go_no_go", "sequence_span", "profile", "dashboard", "coach"]
         page_labels = {
             "consent": "1. Informed Consent",
             "go_no_go": "2. Go / No-Go",
             "sequence_span": "3. Sequence Span",
             "profile": "4. Cognitive Profile",
-            "coach": "5. Cognitive Coach",
+            "dashboard": "5. Cognitive Dashboard",
+            "coach": "6. Cognitive Coach",
         }
         current_page = st.session_state.get("page", "consent")
         current_idx = pages.index(current_page) if current_page in pages else 0
@@ -110,6 +112,8 @@ def main() -> None:
         render_sequence_span_page(API_URL, user_id, session_id)
     elif page == "profile":
         render_profile_page(API_URL, user_id)
+    elif page == "dashboard":
+        render_dashboard_page(API_URL, user_id)
     elif page == "coach":
         render_coach_page(API_URL, user_id)
     else:

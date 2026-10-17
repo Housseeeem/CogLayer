@@ -211,6 +211,24 @@ def test_app_main_dispatches_coach(mock_st: MagicMock, mock_render_coach: MagicM
     assert mock_render_coach.called
 
 
+@patch("coglayer.ui.app.render_dashboard_page")
+@patch("coglayer.ui.app.st")
+def test_app_main_dispatches_dashboard(
+    mock_st: MagicMock, mock_render_dashboard: MagicMock
+) -> None:
+    """Main Streamlit app router dispatches to dashboard page."""
+    from coglayer.ui.app import main
+
+    session_store: dict[str, object] = {"user_id": "user_default", "page": "dashboard"}
+    mock_st.session_state = session_store
+    mock_st.text_input.return_value = "user_default"
+    mock_st.radio.return_value = "dashboard"
+    mock_st.button.return_value = False
+
+    main()
+    assert mock_render_dashboard.called
+
+
 @patch("coglayer.ui.pages.consent.httpx.post")
 @patch("coglayer.ui.pages.consent.httpx.get")
 @patch("coglayer.ui.pages.consent.st")
