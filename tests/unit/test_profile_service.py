@@ -15,10 +15,17 @@ import pytest
 from coglayer.core.models import (
     CognitiveProfile,
     DataQuality,
+    TaskDescriptor,
     TaskResult,
     Trial,
 )
-from coglayer.profile.service import DIMENSION_MAPPING, ProfileService
+from coglayer.profile.service import (
+    DIMENSION_MAPPING,
+    ProfileService,
+    derive_dimension_mapping,
+    derive_dimension_mapping_from_descriptors,
+)
+from coglayer.signals.registry import InMemoryTaskRegistry
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -372,3 +379,183 @@ def test_original_profile_unchanged() -> None:
     original_dims = dict(_EMPTY_PROFILE.dimensions)
     svc.update_from_result(_EMPTY_PROFILE, _make_gng_result(0.8))
     assert _EMPTY_PROFILE.dimensions == original_dims
+
+
+def test_coverage_line_72_descriptor_without_primary_metric_skipped() -> None:
+    """Line 72: Descriptor without primary_metric is skipped in mapping derivation.
+
+    Hand-derived:
+      desc has no primary_metric and no parameters['primary_metric'].
+      Resulting mapping should be empty {}.
+    """
+    desc = TaskDescriptor(
+        task_id="no_primary_task",
+        version="1.0",
+        instructions="Instructions",
+        target_dimensions=["response_inhibition"],
+        parameters={},
+    )
+    mapping = derive_dimension_mapping_from_descriptors([desc])
+    # Hand-derived: line 72 triggers 'continue', so "no_primary_task" is not in mapping
+    assert mapping == {}
+
+
+def test_coverage_lines_88_94_derive_dimension_mapping_registry_keyerror() -> None:
+    """Lines 88-94: derive_dimension_mapping handles tasks missing version 1.0.
+
+    Hand-derived:
+      task_a has v1.0 -> included in mapping: {'task_a': [('dim_a', 'metric_a', 1.0, '')]}
+      task_b only has v2.0 -> registry.get('task_b', '1.0') raises KeyError, caught and skipped.
+    """
+    registry = InMemoryTaskRegistry()
+    desc_a = TaskDescriptor(
+        task_id="task_a",
+        version="1.0",
+        instructions="Instructions A",
+        target_dimensions=["dim_a"],
+        primary_metric="metric_a",
+        parameters={},
+    )
+    desc_b = TaskDescriptor(
+        task_id="task_b",
+        version="2.0",
+        instructions="Instructions B",
+        target_dimensions=["dim_b"],
+        primary_metric="metric_b",
+        parameters={},
+    )
+    registry.register(desc_a)
+    registry.register(desc_b)
+
+    mapping = derive_dimension_mapping(registry)
+    # Hand-derived: only task_a is resolved (since registry.get looks up "1.0")
+    assert "task_a" in mapping
+    assert mapping["task_a"] == [("dim_a", "metric_a", 1.0, "")]
+    assert "task_b" not in mapping
+
+
+def test_coverage_lines_163_167_registry_version_fallback_and_missing() -> None:
+    """Lines 163-167: ProfileService fallback to 1.0 and fallback to DIMENSION_MAPPING on KeyError.
+
+    Hand-derived:
+      Case 1: result task_version="2.0", registry has "1.0".
+        KeyError on 2.0 -> falls back to 1.0.
+        Prior (1, 1). Outcome 0.75, count 10, weight 1.0 -> n_eff = 10.0.
+        alpha = 1 + 10 * 0.75 = 8.5, beta = 1 + 10 * 0.25 = 3.5.
+        mean = 8.5 / 12.0 = 0.708333...
+      Case 2: result task_version="2.0", registry has neither 2.0 nor 1.0.
+        desc becomes None.
+        If task is in DIMENSION_MAPPING (go_no_go), it falls back to static DIMENSION_MAPPING.
+      Case 3: unknown task not in registry or DIMENSION_MAPPING -> returns unchanged profile.
+    """
+    registry = InMemoryTaskRegistry()
+    desc_v1 = TaskDescriptor(
+        task_id="custom_fallback_task",
+        version="1.0",
+        instructions="Test",
+        target_dimensions=["custom_dim"],
+        primary_metric="custom_metric",
+        parameters={"count_metric": "custom_count"},
+    )
+    registry.register(desc_v1)
+
+    svc = ProfileService(lambda_=1.0, registry=registry)
+    # Case 1: result has version 2.0 -> registry.get("custom_fallback_task", "2.0") raises KeyError,
+    # then registry.get("custom_fallback_task", "1.0") succeeds (lines 163-165).
+    dq1 = DataQuality(valid_trials=10, total_trials=10, completeness=1.0, anomalies=[])
+    res1 = TaskResult(
+        task_id="custom_fallback_task",
+        task_version="2.0",
+        session_id="s1",
+        user_id="u1",
+        trials=[],
+        metrics={"custom_metric": 0.75, "custom_count": 10.0},
+        signals=[],
+        target_dimensions=["custom_dim"],
+        data_quality=dq1,
+        uncertainty=None,
+    )
+    p1 = svc.update_from_result(_EMPTY_PROFILE, res1)
+    # Hand-derived: alpha = 1 + 10 * 0.75 = 8.5, beta = 1 + 10 * 0.25 = 3.5
+    est1 = p1.dimensions["custom_dim"]
+    assert est1.alpha == pytest.approx(8.5)
+    assert est1.beta_param == pytest.approx(3.5)
+    assert est1.mean == pytest.approx(8.5 / 12.0)
+
+    # Case 2: neither "2.0" nor "1.0" in registry -> lines 166-167 desc=None
+    # Falls back to static DIMENSION_MAPPING for registered tasks
+    # Use go_no_go with version "99.0" which is not in registry
+    res2 = _make_gng_result(nogo_accuracy=0.8, nogo_valid_count=10.0)
+    res2_unknown_ver = res2.model_copy(update={"task_version": "99.0"})
+    p2 = svc.update_from_result(_EMPTY_PROFILE, res2_unknown_ver)
+    # go_no_go is in DIMENSION_MAPPING, so it succeeds via fallback to DIMENSION_MAPPING
+    assert "response_inhibition" in p2.dimensions
+
+    # Case 3: unknown task not in registry and not in DIMENSION_MAPPING -> unchanged
+    res3 = res1.model_copy(update={"task_id": "totally_unknown_task"})
+    p3 = svc.update_from_result(_EMPTY_PROFILE, res3)
+    assert p3.dimensions == {}
+
+
+def test_coverage_line_203_missing_count_metric_with_zero_valid_trials() -> None:
+    """Line 203: When count_metric is empty and valid_trials <= 0, raw_count is None and skipped.
+
+    Hand-derived:
+      Descriptor has count_metric = "" (no count_metric in parameters).
+      Result has valid_trials = 0 and completeness = 0.0.
+      raw_count becomes None -> dimension update is skipped. Profile remains unchanged.
+      When valid_trials = 5:
+      raw_count = 5.0. Outcome 0.6, count 5.0, weight 1.0 -> n_eff = 5.0.
+      alpha = 1 + 5 * 0.6 = 4.0, beta = 1 + 5 * 0.4 = 3.0.
+      mean = 4.0 / 7.0 = 0.57142857...
+    """
+    registry = InMemoryTaskRegistry()
+    desc = TaskDescriptor(
+        task_id="no_count_metric_task",
+        version="1.0",
+        instructions="Test",
+        target_dimensions=["dim_x"],
+        primary_metric="metric_x",
+        parameters={},  # No count_metric
+    )
+    registry.register(desc)
+    svc = ProfileService(lambda_=1.0, registry=registry)
+
+    # valid_trials = 0 -> line 203 raw_count = None -> skipped
+    dq_zero = DataQuality(valid_trials=0, total_trials=10, completeness=0.0, anomalies=[])
+    res_zero = TaskResult(
+        task_id="no_count_metric_task",
+        task_version="1.0",
+        session_id="s1",
+        user_id="u1",
+        trials=[],
+        metrics={"metric_x": 0.6},
+        signals=[],
+        target_dimensions=["dim_x"],
+        data_quality=dq_zero,
+        uncertainty=None,
+    )
+    p_zero = svc.update_from_result(_EMPTY_PROFILE, res_zero)
+    # Hand-derived: skipped, profile remains empty
+    assert "dim_x" not in p_zero.dimensions
+
+    # valid_trials = 5 -> lines 200-201 raw_count = 5.0 -> updated
+    dq_five = DataQuality(valid_trials=5, total_trials=10, completeness=0.5, anomalies=[])
+    res_five = TaskResult(
+        task_id="no_count_metric_task",
+        task_version="1.0",
+        session_id="s2",
+        user_id="u1",
+        trials=[],
+        metrics={"metric_x": 0.6},
+        signals=[],
+        target_dimensions=["dim_x"],
+        data_quality=dq_five,
+        uncertainty=None,
+    )
+    p_five = svc.update_from_result(_EMPTY_PROFILE, res_five)
+    # Hand-derived: alpha = 1 + 5 * 0.6 = 4.0, beta = 1 + 5 * (1 - 0.6) = 3.0
+    est = p_five.dimensions["dim_x"]
+    assert est.alpha == pytest.approx(4.0)
+    assert est.beta_param == pytest.approx(3.0)
+    assert est.mean == pytest.approx(4.0 / 7.0)
