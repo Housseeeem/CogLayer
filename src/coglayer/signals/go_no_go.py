@@ -20,10 +20,12 @@ from coglayer.core.models import (
     DataQuality,
     RawTaskResult,
     Signal,
+    TaskDescriptor,
     TaskResult,
     Trial,
 )
 from coglayer.core.settings import Settings, get_settings
+from coglayer.core.tasks import GO_NO_GO_DESCRIPTOR
 
 __all__ = [
     "ANTICIPATION_THRESHOLD_MS",
@@ -150,8 +152,13 @@ class GoNoGoScorer:
     * ``valid_trial_count``  - number of valid trials.
     """
 
-    def __init__(self, settings: Settings | None = None) -> None:
+    def __init__(
+        self,
+        settings: Settings | None = None,
+        descriptor: TaskDescriptor | None = None,
+    ) -> None:
         self._settings = settings
+        self._descriptor = descriptor or GO_NO_GO_DESCRIPTOR
 
     def score(self, raw: RawTaskResult) -> TaskResult:
         """Score raw Go/No-Go data and return a fully-populated TaskResult."""
@@ -260,7 +267,7 @@ class GoNoGoScorer:
             trials=trials,
             metrics=metrics,
             signals=[Signal(name="rt", value=mean_rt_ms)],
-            target_dimensions=["response_inhibition"],
+            target_dimensions=list(self._descriptor.target_dimensions),
             data_quality=data_quality,
             uncertainty=None,
         )
