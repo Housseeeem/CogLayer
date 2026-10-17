@@ -15,6 +15,7 @@ import pytest
 from coglayer.core.models import (
     CognitiveProfile,
     DataQuality,
+    Reading,
     TaskDescriptor,
     TaskResult,
     Trial,
@@ -392,7 +393,7 @@ def test_coverage_line_72_descriptor_without_primary_metric_skipped() -> None:
         task_id="no_primary_task",
         version="1.0",
         instructions="Instructions",
-        target_dimensions=["response_inhibition"],
+        target_dimensions=[],
         parameters={},
     )
     mapping = derive_dimension_mapping_from_descriptors([desc])
@@ -570,7 +571,8 @@ def test_descriptor_metric_comes_only_from_descriptor_not_parameters() -> None:
         task_id="task_param",
         version="1.0",
         instructions="Instructions",
-        target_dimensions=["dim_param"],
+        target_dimensions=[],
+        readings=[Reading(metric="obs", dimension="dim_obs", status="observation")],
         parameters={"primary_metric": "param_metric"},
     )
     mapping_param = derive_dimension_mapping_from_descriptors([desc_param])
@@ -582,7 +584,7 @@ def test_descriptor_metric_comes_only_from_descriptor_not_parameters() -> None:
         version="1.0",
         instructions="Instructions",
         target_dimensions=["dim_field"],
-        primary_metric="field_metric",
+        readings=[Reading(metric="field_metric", dimension="dim_field", status="profile")],
         count_metric="field_count",
         parameters={},
     )

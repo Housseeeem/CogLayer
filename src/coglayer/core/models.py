@@ -11,9 +11,9 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import StrEnum
-from typing import Literal
+from typing import Literal, Self
 
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 # ---------------------------------------------------------------------------
 # Type alias for raw (unscored) task output
@@ -83,6 +83,18 @@ class TaskResult(BaseModel):
     uncertainty: float | None
 
 
+ReadingStatus = Literal["profile", "observation", "quality"]
+
+
+class Reading(BaseModel):
+    """A metric reading produced by a task with its dimensional status and caveats."""
+
+    metric: str
+    dimension: str
+    status: Literal["profile", "observation", "quality"]
+    caveat: str | None = None
+
+
 class TaskDescriptor(BaseModel):
     """Static descriptor for a registered task (stored in the TaskRegistry)."""
 
@@ -93,6 +105,37 @@ class TaskDescriptor(BaseModel):
     parameters: dict[str, object]
     primary_metric: str | None = None
     count_metric: str | None = None
+    readings: list[Reading] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _validate_interpretation_rules(self) -> Self:
+        # Rule (c): NO numeric weights anywhere
+        if "weight" in self.parameters or "weights" in self.parameters:
+            raise ValueError("Numeric weights are forbidden anywhere in TaskDescriptor parameters.")
+
+        # Synthesize profile reading if readings is empty but primary_metric is given
+        if not self.readings and self.primary_metric and self.target_dimensions:
+            self.readings = [
+                Reading(metric=self.primary_metric, dimension=dim, status="profile")
+                for dim in self.target_dimensions
+            ]
+
+        # Rule (a): exactly one status="profile" reading per target dimension
+        if self.readings:
+            profile_readings = [r for r in self.readings if r.status == "profile"]
+            for dim in self.target_dimensions:
+                matching = [r for r in profile_readings if r.dimension == dim]
+                if len(matching) != 1:
+                    raise ValueError(
+                        f"Target dimension '{dim}' must have exactly one status='profile' reading, "
+                        f"found {len(matching)}."
+                    )
+            # Rule (b): the profile reading is the single source of the primary metric
+            if profile_readings:
+                object.__setattr__(self, "primary_metric", profile_readings[0].metric)
+            else:
+                object.__setattr__(self, "primary_metric", None)
+        return self
 
 
 # ---------------------------------------------------------------------------
