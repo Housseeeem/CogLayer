@@ -8,6 +8,8 @@ Requirements: Layer C Dashboard
 
 from __future__ import annotations
 
+from unittest.mock import MagicMock, patch
+
 from coglayer.ui.dashboard import (
     build_dimension_series,
     build_history_rows,
@@ -17,6 +19,7 @@ from coglayer.ui.dashboard import (
     create_progress_curve,
     create_radar_chart,
 )
+from coglayer.ui.pages.dashboard import render_dashboard_page
 
 
 def test_build_radar_rows_fixed_order() -> None:
@@ -310,3 +313,212 @@ def test_progress_curve_and_history_data() -> None:
     assert hist_rows[1]["session_id"] == "sess_2" and hist_rows[1]["task_id"] == "go_no_go"
     assert hist_rows[2]["session_id"] == "sess_1" and hist_rows[2]["task_id"] == "sequence_span"
     assert hist_rows[3]["session_id"] == "sess_1" and hist_rows[3]["task_id"] == "go_no_go"
+
+
+@patch("coglayer.ui.pages.dashboard.httpx.get")
+@patch("coglayer.ui.pages.dashboard.st")
+def test_render_dashboard_page_empty_state(mock_st: MagicMock, mock_get: MagicMock) -> None:
+    """Dashboard displays friendly empty state when user has no completed sessions.
+
+    Hand-derived:
+      - Empty dimensions in profile JSON.
+      - Displays friendly info prompt telling user to complete first session.
+      - Contains fixed disclaimer: 'Based on these two tasks only — not a clinical assessment.'
+    """
+    mock_get.return_value = MagicMock(
+        status_code=200, json=lambda: {"dimensions": {}, "evidence_history": []}
+    )
+    mock_st.button.return_value = False
+
+    render_dashboard_page("http://testserver", "user_1")
+
+    assert mock_st.info.called
+    info_text = mock_st.info.call_args[0][0]
+    assert "complete" in info_text.lower() and "first session" in info_text.lower()
+
+    # Disclaimer check
+    caption_calls = [call[0][0] for call in mock_st.caption.call_args_list if call[0]]
+    disclaimer_found = any(
+        "Based on these two tasks only — not a clinical assessment." in text
+        for text in caption_calls
+    )
+    assert disclaimer_found
+
+
+@patch("coglayer.ui.pages.dashboard.httpx.get")
+@patch("coglayer.ui.pages.dashboard.st")
+def test_render_dashboard_page_api_error(mock_st: MagicMock, mock_get: MagicMock) -> None:
+    """Dashboard handles API connection error gracefully with readable error and no stack trace.
+
+    Hand-derived:
+      - Connection exception raised by httpx.get.
+      - Displays readable st.error message without raw traceback.
+    """
+    mock_get.side_effect = Exception("Connection refused by testserver")
+
+    render_dashboard_page("http://testserver", "user_1")
+
+    assert mock_st.error.called
+    error_msg = mock_st.error.call_args[0][0]
+    assert "Error connecting to assessment API" in error_msg
+    assert "Traceback" not in error_msg
+
+
+@patch("coglayer.ui.pages.dashboard.httpx.get")
+@patch("coglayer.ui.pages.dashboard.st")
+def test_render_dashboard_page_single_session(mock_st: MagicMock, mock_get: MagicMock) -> None:
+    """Dashboard with 1 session renders radar and progress curve with note on trends.
+
+    Hand-derived:
+      - Profile with 1 completed session for 2 dimensions.
+      - Radar and progress curve rendered via st.altair_chart.
+      - Displays note explaining trends require at least two sessions.
+    """
+    mock_get.return_value = MagicMock(
+        status_code=200,
+        json=lambda: {
+            "dimensions": {
+                "response_inhibition": {
+                    "dimension": "response_inhibition",
+                    "lower": 0.5,
+                    "mean": 0.7,
+                    "upper": 0.9,
+                    "n_evidence": 1,
+                },
+                "sequential_visual_memory": {
+                    "dimension": "sequential_visual_memory",
+                    "lower": 0.4,
+                    "mean": 0.6,
+                    "upper": 0.8,
+                    "n_evidence": 1,
+                },
+            },
+            "evidence_history": [
+                {
+                    "dimension": "response_inhibition",
+                    "outcome": 0.7,
+                    "timestamp": "2026-10-17T10:00:00Z",
+                    "session_id": "s1",
+                    "task_id": "go_no_go",
+                },
+                {
+                    "dimension": "sequential_visual_memory",
+                    "outcome": 0.6,
+                    "timestamp": "2026-10-17T10:05:00Z",
+                    "session_id": "s1",
+                    "task_id": "sequence_span",
+                },
+            ],
+        },
+    )
+
+    render_dashboard_page("http://testserver", "user_1")
+
+    assert mock_st.altair_chart.called
+    # Check note that trends need at least two sessions
+    info_calls = [call[0][0] for call in mock_st.info.call_args_list if call[0]]
+    trend_note_found = any(
+        "trends" in str(text).lower() and "two" in str(text).lower() for text in info_calls
+    )
+    assert trend_note_found
+
+
+@patch("coglayer.ui.pages.dashboard.httpx.get")
+@patch("coglayer.ui.pages.dashboard.st")
+def test_render_dashboard_page_multi_session_and_non_clinical(
+    mock_st: MagicMock, mock_get: MagicMock
+) -> None:
+    """Dashboard page contains disclaimer, progress caption, and no forbidden words.
+
+    Hand-derived:
+      - 2 sessions, multi-dimension profile.
+      - Fixed disclaimer: 'Based on these two tasks only — not a clinical assessment.'
+      - Progress curve caption mentions practice or strategy, not necessarily gain in ability.
+      - Forbidden words (diagnosis, disorder, deficit, impairment, IQ, patient) must not appear.
+    """
+    mock_get.return_value = MagicMock(
+        status_code=200,
+        json=lambda: {
+            "dimensions": {
+                "response_inhibition": {
+                    "dimension": "response_inhibition",
+                    "lower": 0.6,
+                    "mean": 0.8,
+                    "upper": 0.95,
+                    "n_evidence": 2,
+                },
+                "sequential_visual_memory": {
+                    "dimension": "sequential_visual_memory",
+                    "lower": 0.5,
+                    "mean": 0.7,
+                    "upper": 0.85,
+                    "n_evidence": 2,
+                },
+            },
+            "evidence_history": [
+                {
+                    "dimension": "response_inhibition",
+                    "outcome": 0.75,
+                    "timestamp": "2026-10-17T10:00:00Z",
+                    "session_id": "s1",
+                    "task_id": "go_no_go",
+                },
+                {
+                    "dimension": "sequential_visual_memory",
+                    "outcome": 0.65,
+                    "timestamp": "2026-10-17T10:05:00Z",
+                    "session_id": "s1",
+                    "task_id": "sequence_span",
+                },
+                {
+                    "dimension": "response_inhibition",
+                    "outcome": 0.85,
+                    "timestamp": "2026-10-17T12:00:00Z",
+                    "session_id": "s2",
+                    "task_id": "go_no_go",
+                },
+                {
+                    "dimension": "sequential_visual_memory",
+                    "outcome": 0.75,
+                    "timestamp": "2026-10-17T12:05:00Z",
+                    "session_id": "s2",
+                    "task_id": "sequence_span",
+                },
+            ],
+        },
+    )
+
+    render_dashboard_page("http://testserver", "user_1")
+
+    # Collect all text strings rendered by Streamlit
+    all_rendered_text: list[str] = []
+    for method in (
+        "header",
+        "subheader",
+        "caption",
+        "info",
+        "warning",
+        "error",
+        "markdown",
+        "write",
+    ):
+        mock_fn = getattr(mock_st, method)
+        for call in mock_fn.call_args_list:
+            if call[0]:
+                all_rendered_text.append(str(call[0][0]))
+
+    combined_text = " ".join(all_rendered_text)
+
+    # 1. Fixed disclaimer
+    assert "Based on these two tasks only — not a clinical assessment." in combined_text
+
+    # 2. Progress curve caption mentions practice or strategy
+    assert "practice" in combined_text.lower() or "strategy" in combined_text.lower()
+
+    # 3. Non-clinical compliance: zero forbidden words
+    import re
+
+    forbidden_words = ["diagnosis", "disorder", "deficit", "impairment", "iq", "patient"]
+    for word in forbidden_words:
+        matches = re.findall(rf"\b{word}\b", combined_text, flags=re.IGNORECASE)
+        assert len(matches) == 0, f"Forbidden word '{word}' found in rendered UI text: {matches}"
