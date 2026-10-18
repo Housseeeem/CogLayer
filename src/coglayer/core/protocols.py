@@ -163,20 +163,6 @@ class TaskRegistry(Protocol):  # pragma: no cover
         """
         ...
 
-    def get_descriptor(self, task_id: str) -> TaskDescriptor:
-        """Retrieve the latest descriptor for task_id.
-
-        Args:
-            task_id: The task identifier.
-
-        Returns:
-            The matching ``TaskDescriptor``.
-
-        Raises:
-            KeyError: If no descriptor matches task_id.
-        """
-        ...
-
     def list_descriptors(self) -> list[TaskDescriptor]:
         """Return all unique registered task descriptors.
 
