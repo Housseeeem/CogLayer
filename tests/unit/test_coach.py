@@ -19,10 +19,12 @@ from __future__ import annotations
 
 import re
 from datetime import UTC, datetime
+from pathlib import Path
 
 from coglayer.coach.coach import (
     FORBIDDEN_WORDS_PATTERN,
     CognitiveCoach,
+    validate_llm_reply,
 )
 from coglayer.core.models import (
     CognitiveProfile,
@@ -377,3 +379,389 @@ def test_coach_feedback_empty_profile() -> None:
     provider = FakeProvider(seed=42)
     result = _COACH.generate_feedback(profile, provider)
     assert _DISCLAIMER in result
+
+
+# ---------------------------------------------------------------------------
+# Step 1: Settings and provider selection
+# ---------------------------------------------------------------------------
+
+
+def test_get_llm_provider_reads_settings() -> None:
+    """get_llm_provider returns None when coach_use_llm is False, and a provider when True.
+
+    Hand-derived:
+      Settings(coach_use_llm=False) -> None
+      Settings(coach_use_llm=True)  -> FakeProvider instance
+    """
+    from coglayer.api.deps import get_llm_provider
+
+    provider_disabled = get_llm_provider(Settings(coach_use_llm=False))
+    assert provider_disabled is None
+
+    provider_enabled = get_llm_provider(Settings(coach_use_llm=True))
+    assert provider_enabled is not None
+    assert isinstance(provider_enabled, FakeProvider)
+
+
+def test_coach_no_provider_called_when_coach_use_llm_false() -> None:
+    """When coach_use_llm is False, no LLM provider is called at all.
+
+    Tested with a provider that raises if complete() is called.
+    Hand-derived: provider raises AssertionError if invoked; call succeeds and returns local text.
+    """
+    profile = _make_profile()
+
+    class RaisingProvider:
+        def complete(self, request: LLMRequest) -> LLMResponse:
+            raise AssertionError("LLM provider must not be called when coach_use_llm is False")
+
+    # When coach_use_llm is False, generate_feedback must not call the provider
+    feedback = _COACH.generate_feedback(
+        profile,
+        provider=RaisingProvider(),
+        settings=Settings(coach_use_llm=False),
+    )
+    assert _DISCLAIMER in feedback
+    assert "Observations:" in feedback
+
+
+# ---------------------------------------------------------------------------
+# Step 2: Validation of an LLM reply (pure function)
+# ---------------------------------------------------------------------------
+
+
+def test_validate_llm_reply_passing_case() -> None:
+    """Accept an LLM reply when all three rules hold.
+
+    Hand-derived: clean string of 61 characters, no forbidden words, does not
+    echo instruction prompt. Returns stripped reply string.
+    """
+    valid_text = "Great focus and steady progress throughout the session today."
+    assert len(valid_text) >= 20
+    result = validate_llm_reply(valid_text)
+    assert result == valid_text
+
+
+def test_validate_llm_reply_rule_a_forbidden_words() -> None:
+    """Rule a: reject reply containing any forbidden word (case-insensitive whole word).
+
+    Hand-derived: each forbidden word in a sentence >= 20 characters must return None.
+    Forbidden words: diagnosis, disorder, deficit, impairment, IQ, patient.
+    """
+    cases = [
+        "A formal diagnosis cannot be made from these tasks.",
+        "Your responses show no disorder in working memory.",
+        "There is no deficit detected in today's performance.",
+        "No impairment was observed in your reaction speed.",
+        "This assessment does not measure your IQ score.",
+        "You were a very patient user throughout the session.",
+    ]
+    for text in cases:
+        assert len(text) >= 20
+        assert validate_llm_reply(text) is None, f"Expected None for forbidden word in: {text}"
+
+
+def test_validate_llm_reply_rule_a_patients_plural_decision() -> None:
+    """Rule a: 'patients' plural is a separate case.
+
+    Decision: 'patients' is also forbidden because plural clinical language
+    violates non-clinical coaching principles.
+    Hand-derived: text containing 'patients' must return None.
+    """
+    text = "Most patients show similar patterns on sequence span."
+    assert len(text) >= 20
+    assert validate_llm_reply(text) is None
+
+
+def test_validate_llm_reply_rule_a_no_false_positives_iq_substring() -> None:
+    """Rule a: 'iq' inside another word must NOT match.
+
+    Hand-derived: words like 'technique' and 'unique' contain 'iq' as substring,
+    not whole word. The reply must be accepted.
+    """
+    clean_text = "Your technique on the visual span task was unique."
+    assert len(clean_text) >= 20
+    result = validate_llm_reply(clean_text)
+    assert result == clean_text
+
+
+def test_validate_llm_reply_rule_b_length_boundary_19_vs_20() -> None:
+    """Rule b: length >= 20 characters after stripping.
+
+    Hand-derived:
+      - 19 characters after strip -> returns None
+      - 20 characters after strip -> accepted
+      - padded string with 19 non-whitespace chars -> returns None
+    """
+    # 19 characters
+    text_19 = "1234567890123456789"
+    assert len(text_19) == 19
+    assert validate_llm_reply(text_19) is None
+
+    # Padded with spaces, 19 chars when stripped
+    padded_19 = "   1234567890123456789   "
+    assert len(padded_19.strip()) == 19
+    assert validate_llm_reply(padded_19) is None
+
+    # 20 characters
+    text_20 = "12345678901234567890"
+    assert len(text_20) == 20
+    assert validate_llm_reply(text_20) == text_20
+
+    # Padded with spaces, 20 chars when stripped
+    padded_20 = "   12345678901234567890   "
+    assert len(padded_20.strip()) == 20
+    assert validate_llm_reply(padded_20) == text_20
+
+
+def test_validate_llm_reply_rule_c_echoes_instruction() -> None:
+    """Rule c: reject reply if it echoes the instruction / system prompt text.
+
+    Hand-derived:
+      - Full instruction prompt text -> returns None
+      - Prompt prefix / opening sentence (as produced by FakeProvider fallback) -> returns None
+      - Reply embedding 'You are a supportive cognitive coach' -> returns None
+    """
+    from coglayer.coach.coach import _LLM_INSTRUCTION
+
+    # Exact instruction echo
+    assert validate_llm_reply(_LLM_INSTRUCTION) is None
+
+    # FakeProvider fallback echo: '[FakeProvider seed=42] You are a supportive cognitive coach. Us'
+    fake_provider_echo = f"[FakeProvider seed=42] {_LLM_INSTRUCTION[:40]}"
+    assert validate_llm_reply(fake_provider_echo) is None
+
+    # Opening directive embedded in response
+    embedded_echo = "You are a supportive cognitive coach. Great work on the tasks!"
+    assert validate_llm_reply(embedded_echo) is None
+
+
+# ---------------------------------------------------------------------------
+# Step 3: Readable local text
+# ---------------------------------------------------------------------------
+
+
+def test_step3_readable_local_text_hand_derived_and_scipy() -> None:
+    """Validate readable local text format, cautious wording, and statistical bounds.
+
+    Hand-derived:
+      Beta(alpha=9, beta=3) has mean 9 / (9 + 3) = 9/12 = 0.75 = 75%.
+      n_evidence = 1 session.
+    TESTED:
+      Independent scipy computation of 90% credible interval for Beta(9, 3):
+      lower = beta.ppf(0.05, 9, 3) =~ 0.5299 -> 53%
+      upper = beta.ppf(0.95, 9, 3) =~ 0.9212 -> 92%
+    """
+    from scipy.stats import beta as scipy_beta
+
+    # TESTED: independent computation of interval bounds with scipy
+    scipy_lo = float(scipy_beta.ppf(0.05, 9.0, 3.0))
+    scipy_hi = float(scipy_beta.ppf(0.95, 9.0, 3.0))
+    expected_lo_pct = round(scipy_lo * 100)  # 53%
+    expected_hi_pct = round(scipy_hi * 100)  # 92%
+
+    dim_estimate = DimensionEstimate(
+        dimension="response_inhibition",
+        mean=9.0 / 12.0,  # hand-derived: 0.75
+        lower=scipy_lo,
+        upper=scipy_hi,
+        n_evidence=1,
+        last_update=_TS,
+        alpha=9.0,
+        beta_param=3.0,
+    )
+    profile = _make_profile(dimensions={"response_inhibition": dim_estimate})
+
+    local_text = CognitiveCoach._build_local_text(profile)
+
+    # Percentage: 75%
+    assert "75%" in local_text
+
+    # Two-sided interval: 53% - 92% (or 53% \u2013 92%)
+    assert (
+        f"{expected_lo_pct}% \u2013 {expected_hi_pct}%" in local_text
+        or f"{expected_lo_pct}% - {expected_hi_pct}%" in local_text
+    )
+
+    # Number of sessions: 1 session
+    assert "1 session" in local_text
+
+    # Cautious wording: MUST contain "suggests", NEVER "is"
+    assert "suggests" in local_text.lower()
+    assert re.search(r"\bis\b", local_text, re.IGNORECASE) is None, (
+        f"Found forbidden word 'is' in local text:\n{local_text}"
+    )
+
+    # Fixed warning kept exactly
+    exact_warning = "Based on these two tasks only \u2014 not a clinical assessment."
+    assert exact_warning in local_text
+
+    # No clinical terms from Step 2 forbidden words
+    assert FORBIDDEN_WORDS_PATTERN.search(local_text) is None
+
+    # No ranking or comparison of dimensions, no global score
+    ranking_patterns = [
+        r"\brank\b",
+        r"\branked\b",
+        r"\branking\b",
+        r"\bglobal score\b",
+        r"\boverall score\b",
+        r"#\d+",
+        r"\bbetter than\b",
+        r"\bworse than\b",
+    ]
+    for pat in ranking_patterns:
+        assert re.search(pat, local_text, re.IGNORECASE) is None
+
+
+def test_step3_no_fake_provider_leak_in_feedback() -> None:
+    """The coach must never leak '[FakeProvider seed=42] ...' into user-facing output."""
+    profile = _make_profile()
+    provider = FakeProvider(seed=42)
+
+    feedback = _COACH.generate_feedback(profile, provider)
+
+    assert "[FakeProvider" not in feedback
+    assert "You are a supportive cognitive coach" not in feedback
+    assert _DISCLAIMER in feedback
+    assert "suggests" in feedback.lower()
+    assert re.search(r"\bis\b", feedback, re.IGNORECASE) is None
+
+
+# ---------------------------------------------------------------------------
+# Step 4: End to end
+# ---------------------------------------------------------------------------
+
+
+def test_e2e_coach_endpoint_coach_use_llm_false(tmp_path: Path) -> None:
+    """Through the real coach endpoint with coach_use_llm=False:
+    the response contains the local text and the fixed warning, and no provider call happened.
+    """
+    from fastapi.testclient import TestClient
+
+    from coglayer.api.app import create_app
+    from coglayer.api.deps import get_llm_provider
+
+    settings = Settings(
+        db_path=str(tmp_path / "test_coach_e2e.db"),
+        coach_use_llm=False,
+    )
+    app = create_app(settings)
+
+    class RaisingProvider:
+        def complete(self, request: LLMRequest) -> LLMResponse:
+            raise AssertionError("LLM provider must not be called when coach_use_llm is False")
+
+    app.dependency_overrides[get_llm_provider] = lambda: RaisingProvider()
+    client = TestClient(app)
+
+    user_id = "user_e2e_local"
+    client.post("/v1/assessment/consent", json={"user_id": user_id})
+    s_id = client.post("/v1/assessment/sessions", json={"user_id": user_id}).json()["session_id"]
+
+    # Complete both tasks to unlock the coach
+    gng = [
+        {
+            "stimulus": "go",
+            "expected": "press",
+            "response": "press",
+            "rt_ms": 200.0,
+            "timestamp": "2024-01-15T10:00:00+00:00",
+        }
+    ]
+    span = [
+        {
+            "stimulus": "0,1",
+            "expected": "0,1",
+            "response": "0,1",
+            "rt_ms": 1000.0,
+            "timestamp": "2024-01-15T10:00:10+00:00",
+            "length": 2,
+        }
+    ]
+    client.post(
+        "/v1/assessment/tasks/go_no_go/submit",
+        json={"session_id": s_id, "user_id": user_id, "raw_result": {"trials": gng}},
+    )
+    client.post(
+        "/v1/assessment/tasks/sequence_span/submit",
+        json={"session_id": s_id, "user_id": user_id, "raw_result": {"sequences": span}},
+    )
+
+    resp = client.post(f"/v1/assessment/coach/{user_id}")
+    assert resp.status_code == 200
+    text = resp.text
+
+    # Contains local text and fixed warning
+    assert _DISCLAIMER in text
+    assert "suggests" in text.lower()
+    assert re.search(r"\bis\b", text, re.IGNORECASE) is None
+    assert "[FakeProvider" not in text
+
+
+def test_e2e_coach_endpoint_fallback_on_forbidden_word(tmp_path: Path) -> None:
+    """Through the real coach endpoint with a provider returning a forbidden word:
+    the response falls back to the local text.
+    """
+    from fastapi.testclient import TestClient
+
+    from coglayer.api.app import create_app
+    from coglayer.api.deps import get_llm_provider
+
+    settings = Settings(
+        db_path=str(tmp_path / "test_coach_e2e_bad.db"),
+        coach_use_llm=True,
+    )
+    app = create_app(settings)
+
+    class ForbiddenWordProvider:
+        def complete(self, request: LLMRequest) -> LLMResponse:
+            return LLMResponse(
+                text="Your profile shows no sign of a cognitive disorder at all. Keep it up!"
+            )
+
+    app.dependency_overrides[get_llm_provider] = lambda: ForbiddenWordProvider()
+    client = TestClient(app)
+
+    user_id = "user_e2e_forbidden"
+    client.post("/v1/assessment/consent", json={"user_id": user_id})
+    s_id = client.post("/v1/assessment/sessions", json={"user_id": user_id}).json()["session_id"]
+
+    # Complete both tasks to unlock the coach
+    gng = [
+        {
+            "stimulus": "go",
+            "expected": "press",
+            "response": "press",
+            "rt_ms": 200.0,
+            "timestamp": "2024-01-15T10:00:00+00:00",
+        }
+    ]
+    span = [
+        {
+            "stimulus": "0,1",
+            "expected": "0,1",
+            "response": "0,1",
+            "rt_ms": 1000.0,
+            "timestamp": "2024-01-15T10:00:10+00:00",
+            "length": 2,
+        }
+    ]
+    client.post(
+        "/v1/assessment/tasks/go_no_go/submit",
+        json={"session_id": s_id, "user_id": user_id, "raw_result": {"trials": gng}},
+    )
+    client.post(
+        "/v1/assessment/tasks/sequence_span/submit",
+        json={"session_id": s_id, "user_id": user_id, "raw_result": {"sequences": span}},
+    )
+
+    resp = client.post(f"/v1/assessment/coach/{user_id}")
+    assert resp.status_code == 200
+    text = resp.text
+
+    # Must fall back to local text (no forbidden word, contains disclaimer and local wording)
+    assert "disorder" not in text.lower()
+    assert _DISCLAIMER in text
+    assert "suggests" in text.lower()
+    assert re.search(r"\bis\b", text, re.IGNORECASE) is None

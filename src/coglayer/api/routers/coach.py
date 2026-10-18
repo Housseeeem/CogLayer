@@ -38,7 +38,7 @@ def get_coaching_feedback(
     assessment_repo: Annotated[AssessmentRepository, Depends(get_assessment_repo)],
     profile_repo: Annotated[ProfileRepository, Depends(get_profile_repo)],
     coach: Annotated[CognitiveCoach, Depends(get_coach)],
-    provider: Annotated[LLMProvider, Depends(get_llm_provider)],
+    provider: Annotated[LLMProvider | None, Depends(get_llm_provider)],
     settings: Annotated[Settings, Depends(get_db_settings)],
 ) -> str:
     """Generate supportive coaching feedback for a user.
@@ -64,4 +64,4 @@ def get_coaching_feedback(
             uncertainty={},
         )
 
-    return coach.generate_feedback(profile, provider)
+    return coach.generate_feedback(profile, provider=provider, settings=settings)

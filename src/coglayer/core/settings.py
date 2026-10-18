@@ -41,6 +41,7 @@ class Settings(BaseSettings):
     completeness_threshold: float = 0.8
     forgetting_factor: float = 0.98
     llm_provider: str = "fake"
+    coach_use_llm: bool = False
     # Quality gate: minimum Go accuracy required for go_no_go to update the profile.
     # This threshold is a design choice with no source: at least 11 correct Go out of 15 (0.7).
     go_no_go_min_go_accuracy: float = 0.7

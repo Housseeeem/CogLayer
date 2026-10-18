@@ -31,7 +31,7 @@ from coglayer.core.models import CognitiveProfile, TaskResult
 from coglayer.core.protocols import LLMProvider, LLMRequest
 from coglayer.core.settings import Settings
 
-__all__ = ["FORBIDDEN_WORDS_PATTERN", "CognitiveCoach"]
+__all__ = ["FORBIDDEN_WORDS_PATTERN", "CognitiveCoach", "validate_llm_reply"]
 
 _log = logging.getLogger(__name__)
 
@@ -47,6 +47,7 @@ _FORBIDDEN_WORDS: Final[tuple[str, ...]] = (
     "impairment",
     "IQ",
     "patient",
+    "patients",
 )
 
 FORBIDDEN_WORDS_PATTERN: Final[re.Pattern[str]] = re.compile(
@@ -62,6 +63,46 @@ _LLM_INSTRUCTION: Final[str] = (
     "friendly, encouraging feedback for the user. Do not rank dimensions "
     "against each other and do not produce a global score. Keep it concise."
 )
+
+
+def _echoes_instruction(reply: str, instruction: str) -> bool:
+    """Return True if reply echoes the instruction or its opening directive."""
+    if not instruction:
+        return False
+    r_lower = reply.lower()
+    inst_lower = instruction.strip().lower()
+    if inst_lower in r_lower:
+        return True
+    first_sentence = inst_lower.split(".")[0].strip()
+    if len(first_sentence) >= 15 and first_sentence in r_lower:
+        return True
+    return False
+
+
+def validate_llm_reply(
+    reply: str,
+    instruction: str = _LLM_INSTRUCTION,
+) -> str | None:
+    """Validate an LLM reply against safety and quality rules.
+
+    Accepts an LLM reply only if ALL hold:
+      a) none of these whole words appear, case-insensitive:
+         diagnosis, disorder, deficit, impairment, IQ, patient, patients;
+      b) length >= 20 characters after stripping;
+      c) it does not echo the instruction/system prompt text.
+
+    Otherwise returns None so the caller falls back to the local text.
+    """
+    if not reply:
+        return None
+    stripped = reply.strip()
+    if len(stripped) < 20:
+        return None
+    if FORBIDDEN_WORDS_PATTERN.search(stripped):
+        return None
+    if _echoes_instruction(stripped, instruction):
+        return None
+    return stripped
 
 
 class CognitiveCoach:
@@ -116,13 +157,17 @@ class CognitiveCoach:
     def generate_feedback(
         self,
         profile: CognitiveProfile,
-        provider: LLMProvider,
+        provider: LLMProvider | None = None,
+        settings: Settings | None = None,
     ) -> str:
         """Generate coaching feedback from the profile.
 
         Builds a local summary from the profile dimensions, then asks the
-        LLM provider to rewrite it in a friendly tone.  The CognitiveProfile
+        LLM provider to rewrite it in a friendly tone if enabled.  The CognitiveProfile
         object is NEVER sent to the provider.
+
+        When coach_use_llm is False or no provider is given, the local text is
+        returned directly without calling any provider.
 
         On a forbidden-word hit or a provider exception the local text is
         returned as-is and a warning is logged (without the text content).
@@ -132,7 +177,9 @@ class CognitiveCoach:
         profile :
             The user's current cognitive profile.
         provider :
-            LLM provider (FakeProvider in tests).
+            Optional LLM provider (FakeProvider in tests).
+        settings :
+            Optional application settings (coach_use_llm flag).
 
         Returns
         -------
@@ -141,26 +188,33 @@ class CognitiveCoach:
         """
         local_text = self._build_local_text(profile)
 
+        if settings is not None and not settings.coach_use_llm:
+            return local_text
+
+        if provider is None:
+            return local_text
+
         # Build the LLM prompt — only the local text, never the profile object
         prompt = f"{_LLM_INSTRUCTION}\n\n{local_text}"
 
         try:
             llm_response = provider.complete(LLMRequest(prompt=prompt))
-            enriched = llm_response.text
+            raw_text = llm_response.text
         except Exception:
             _log.warning("LLM provider raised an exception; falling back to local text")
             return local_text
 
-        # Check for forbidden words in the LLM output
-        if FORBIDDEN_WORDS_PATTERN.search(enriched):
-            _log.warning("LLM response contained a forbidden word; falling back to local text")
+        # Validate LLM output against clinical words, length, and instruction echo
+        validated = validate_llm_reply(raw_text, instruction=_LLM_INSTRUCTION)
+        if validated is None:
+            _log.warning("LLM response failed validation; falling back to local text")
             return local_text
 
         # Append disclaimer if the LLM didn't include it
-        if _DISCLAIMER not in enriched:
-            enriched = f"{enriched}\n\n{_DISCLAIMER}"
+        if _DISCLAIMER not in validated:
+            validated = f"{validated}\n\n{_DISCLAIMER}"
 
-        return enriched
+        return validated
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -170,12 +224,12 @@ class CognitiveCoach:
     def _build_local_text(profile: CognitiveProfile) -> str:
         """Build a human-readable summary from the profile dimensions.
 
-        Includes per-dimension: credible interval as percent range,
-        n_evidence count, data quality completeness, and uncertainty.
+        Includes per-dimension: percentage, two-sided credible interval,
+        session count, cautious wording ('suggests', never 'is').
         Never ranks dimensions or outputs a global score.
         """
         lines: list[str] = []
-        lines.append("Here is your cognitive profile summary:\n")
+        lines.append("Cognitive profile summary:\n")
 
         if not profile.dimensions:
             lines.append("No assessment data available yet.")
@@ -183,20 +237,20 @@ class CognitiveCoach:
             return "\n".join(lines)
 
         for dim_name, estimate in sorted(profile.dimensions.items()):
-            lower_pct = estimate.lower * 100
-            upper_pct = estimate.upper * 100
+            pct = round(estimate.mean * 100)
+            lower_pct = round(estimate.lower * 100)
+            upper_pct = round(estimate.upper * 100)
             n = estimate.n_evidence
-            dq = profile.data_quality.get(dim_name)
-            completeness = dq.completeness if dq else 0.0
-            unc = profile.uncertainty.get(dim_name)
+            session_str = f"{n} session" if n == 1 else f"{n} sessions"
 
             dim_label = dim_name.replace("_", " ").title()
             lines.append(f"  {dim_label}:")
-            lines.append(f"    Estimated range: {lower_pct:.0f}% \u2013 {upper_pct:.0f}%")
+            lines.append(
+                f"    Performance suggests an estimate of {pct}% "
+                f"(two-sided credible interval: {lower_pct}% \u2013 {upper_pct}%, "
+                f"based on {session_str})."
+            )
             lines.append(f"    Observations: {n}")
-            lines.append(f"    Data quality: {completeness:.0%}")
-            if unc is not None:
-                lines.append(f"    Uncertainty: {unc:.2f}")
             lines.append("")
 
         lines.append(_DISCLAIMER)
