@@ -10,11 +10,12 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 
-from coglayer.api.deps import get_profile_repo
+from coglayer.api.deps import get_consent_service, get_profile_repo
 from coglayer.core.models import CognitiveProfile
 from coglayer.core.protocols import ProfileRepository
+from coglayer.privacy.consent import ConsentService
 
 router = APIRouter(tags=["profile"])
 
@@ -22,12 +23,30 @@ router = APIRouter(tags=["profile"])
 @router.get("/profile/{user_id}", response_model=CognitiveProfile)
 def get_profile(
     user_id: str,
+    consent_service: Annotated[ConsentService, Depends(get_consent_service)],
     profile_repo: Annotated[ProfileRepository, Depends(get_profile_repo)],
+    request: Request,
 ) -> CognitiveProfile:
     """Retrieve the cognitive profile for a user.
 
+    Validates:
+    - Request identity matches target user_id (HTTP 403)
+    - User has active consent (HTTP 403)
     Returns an empty profile if no assessments have been scored yet.
     """
+    req_identity = request.query_params.get("user_id")
+    if req_identity is not None and req_identity != user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Forbidden for this user.",
+        )
+
+    if not consent_service.has_consented(user_id):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="User has not given active consent.",
+        )
+
     profile = profile_repo.get_profile(user_id)
     if profile is None:
         return CognitiveProfile(

@@ -139,7 +139,10 @@ def test_admin_delete_user(tmp_path: pathlib.Path) -> None:
     assert client.get(f"/v1/assessment/consent/{user_id}").json()["has_consented"] is False
     # Session is gone
     assert client.get(f"/v1/assessment/sessions/{s_id}").status_code == 404
-    # Profile is blank
+    # Profile access without consent is forbidden
+    assert client.get(f"/v1/assessment/profile/{user_id}").status_code == 403
+    # Re-consenting confirms the underlying profile data was wiped blank
+    client.post("/v1/assessment/consent", json={"user_id": user_id})
     prof = client.get(f"/v1/assessment/profile/{user_id}").json()
     assert prof["dimensions"] == {}
 

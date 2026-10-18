@@ -16,7 +16,7 @@ import uuid
 from datetime import UTC, datetime
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel
 
 from coglayer.api.deps import (
@@ -117,15 +117,47 @@ def update_session_status(
 @router.get("/sessions/{session_id}/results", response_model=list[TaskResult])
 def get_session_results(
     session_id: str,
+    consent_service: Annotated[ConsentService, Depends(get_consent_service)],
     assessment_repo: Annotated[AssessmentRepository, Depends(get_assessment_repo)],
+    request: Request,
 ) -> list[TaskResult]:
-    """Retrieve all scored task results for a session."""
+    """Retrieve all scored task results for a session.
+
+    Validates:
+    - If declared user_id is provided, checks its consent and match with session owner (HTTP 403)
+    - Session existence (HTTP 404)
+    - User consent for session owner (HTTP 403)
+    """
+    req_identity = request.query_params.get("user_id")
+
+    # If caller declares an identity, verify consent before any session/results read
+    if req_identity is not None and not consent_service.has_consented(req_identity):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="User has not given active consent.",
+        )
+
     session = assessment_repo.get_session(session_id)
     if session is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Session {session_id} not found.",
         )
+
+    # Verify session ownership against declared identity
+    if req_identity is not None and session.user_id != req_identity:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Forbidden for this user.",
+        )
+
+    # Verify active consent of the session owner
+    if not consent_service.has_consented(session.user_id):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="User has not given active consent.",
+        )
+
     return assessment_repo.get_results(session_id)
 
 
