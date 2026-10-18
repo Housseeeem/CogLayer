@@ -24,10 +24,11 @@ from coglayer.api.deps import (
     get_consent_service,
     get_db_settings,
     get_decision_engine,
+    get_profile_repo,
 )
 from coglayer.coach.decision import AdaptiveDecisionEngine
 from coglayer.core.models import EngineDecision, Session, SessionStatus, TaskResult
-from coglayer.core.protocols import AssessmentRepository
+from coglayer.core.protocols import AssessmentRepository, ProfileRepository
 from coglayer.core.settings import Settings
 from coglayer.privacy.consent import ConsentService
 
@@ -165,6 +166,7 @@ def get_session_results(
 def get_session_decision(
     session_id: str,
     assessment_repo: Annotated[AssessmentRepository, Depends(get_assessment_repo)],
+    profile_repo: Annotated[ProfileRepository, Depends(get_profile_repo)],
     engine: Annotated[AdaptiveDecisionEngine, Depends(get_decision_engine)],
     settings: Annotated[Settings, Depends(get_db_settings)],
 ) -> EngineDecision:
@@ -176,4 +178,5 @@ def get_session_decision(
             detail=f"Session {session_id} not found.",
         )
     results = assessment_repo.get_results(session_id)
-    return engine.decide(results=results, settings=settings)
+    profile = profile_repo.get_profile(session.user_id)
+    return engine.decide(results=results, settings=settings, profile=profile)

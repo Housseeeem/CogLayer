@@ -103,6 +103,34 @@ class InMemoryTaskRegistry:
         """
         return sorted({task_id for task_id, _version in self._store})
 
+    def get_descriptor(self, task_id: str) -> TaskDescriptor:
+        """Retrieve the latest registered TaskDescriptor for task_id.
+
+        Args:
+            task_id: The task identifier.
+
+        Returns:
+            The matching ``TaskDescriptor``.
+
+        Raises:
+            KeyError: If no task matches task_id.
+        """
+        matching = [desc for (tid, _), desc in self._store.items() if tid == task_id]
+        if not matching:
+            raise KeyError(f"No task registered for task_id={task_id!r}")
+        return matching[-1]
+
+    def list_descriptors(self) -> list[TaskDescriptor]:
+        """Return all unique registered task descriptors (latest per task_id).
+
+        Returns:
+            A list of TaskDescriptor objects ordered by list_ids().
+        """
+        descriptors: list[TaskDescriptor] = []
+        for task_id in self.list_ids():
+            descriptors.append(self.get_descriptor(task_id))
+        return descriptors
+
 
 # ---------------------------------------------------------------------------
 # Built-in task descriptors (referenced from core.tasks single source of truth)

@@ -86,9 +86,14 @@ def get_task_registry() -> TaskRegistry:
     return build_default_registry()
 
 
-def get_decision_engine() -> AdaptiveDecisionEngine:
-    """Return the AdaptiveDecisionEngine."""
-    return AdaptiveDecisionEngine()
+def get_decision_engine(
+    registry: Annotated[TaskRegistry, Depends(get_task_registry)],
+) -> AdaptiveDecisionEngine:
+    """Return the AdaptiveDecisionEngine wired to task registry and interval function."""
+    from coglayer.profile.model import BetaProfileModel
+
+    model = BetaProfileModel()
+    return AdaptiveDecisionEngine(registry=registry, interval_fn=model.credible_interval)
 
 
 def get_coach() -> CognitiveCoach:
