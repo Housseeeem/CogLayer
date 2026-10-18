@@ -16,9 +16,6 @@ import streamlit.components.v1 as components
 def render_sequence_span_page(api_url: str, user_id: str, session_id: str) -> None:
     """Render Visual Sequence Span task page."""
     st.header("Task 2: Visual Sequence Span (Sequential Visual Memory Proxy)")
-    decision_reason = st.session_state.get("decision_reason")
-    if isinstance(decision_reason, str):
-        st.info(decision_reason)
 
     st.markdown(
         """
@@ -48,6 +45,10 @@ def render_sequence_span_page(api_url: str, user_id: str, session_id: str) -> No
                 return
     except Exception as e:
         st.warning(f"Could not reach API to check session status: {e}")
+
+    decision_reason = st.session_state.get("decision_reason")
+    if isinstance(decision_reason, str):
+        st.info(decision_reason)
 
     # Self-contained HTML/JS sequence span runner
     html_code = f"""

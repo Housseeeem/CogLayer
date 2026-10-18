@@ -16,9 +16,6 @@ import streamlit.components.v1 as components
 def render_go_no_go_page(api_url: str, user_id: str, session_id: str) -> None:
     """Render Go/No-Go interactive task page."""
     st.header("Task 1: Go / No-Go (Response Inhibition)")
-    decision_reason = st.session_state.get("decision_reason")
-    if isinstance(decision_reason, str):
-        st.info(decision_reason)
 
     st.markdown(
         """
@@ -43,6 +40,10 @@ def render_go_no_go_page(api_url: str, user_id: str, session_id: str) -> None:
                 return
     except Exception as e:
         st.warning(f"Could not reach API to check session status: {e}")
+
+    decision_reason = st.session_state.get("decision_reason")
+    if isinstance(decision_reason, str):
+        st.info(decision_reason)
 
     # Self-contained HTML/JS task runner
     html_code = f"""
