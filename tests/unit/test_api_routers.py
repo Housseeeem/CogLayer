@@ -284,3 +284,112 @@ def test_submit_unregistered_task_version_stores_result_without_profile_update(
     assert results_resp.status_code == 200
     assert len(results_resp.json()) == 1
     assert results_resp.json()[0]["task_version"] == "9.9"
+
+
+def test_sessions_decision_with_stored_profile(tmp_path: pathlib.Path) -> None:
+    """GET /sessions/{session_id}/decision with a stored profile in the database.
+
+    Hand-derived:
+      Scenario:
+      Two built-in tasks in registry:
+        - go_no_go: measures response_inhibition (label: 'Response Inhibition')
+        - sequence_span: measures sequential_visual_memory (label: 'Sequential Visual Memory')
+      Uniform prior Beta(1,1): width = 0.95 - 0.05 = 0.900000.
+      Posterior Beta(9,3): lower = 0.529913, upper = 0.921180, width = 0.391267.
+
+      Case 1: User 1 has stored profile with Beta(9,3) for response_inhibition (width 0.391267)
+      and no evidence for sequential_visual_memory (width 0.900000).
+      Session has no results.
+      Least certain dimension is sequential_visual_memory.
+      Expected task: 'sequence_span'.
+      Expected reason: 'Sequential Visual Memory is where our estimate is least
+      certain, so we test it next.'
+
+      Case 2 (Swapped): User 2 has stored profile with Beta(9,3) for
+      sequential_visual_memory (width 0.391267)
+      and no evidence for response_inhibition (width 0.900000).
+      Session has no results.
+      Least certain dimension is response_inhibition.
+      Expected task: 'go_no_go'.
+      Expected reason: 'Response Inhibition is where our estimate is least
+      certain, so we test it next.'
+    """
+    from datetime import UTC, datetime
+
+    from coglayer.api.db.sqlite import SQLiteProfileRepository
+    from coglayer.core.models import CognitiveProfile, DimensionEstimate
+
+    client = _client(tmp_path)
+    db_path = str(tmp_path / "test_api_unit.db")
+    profile_repo = SQLiteProfileRepository(db_path)
+    now = datetime(2024, 1, 15, 10, 0, 0, tzinfo=UTC)
+
+    # --- Case 1: X (response_inhibition) has Beta(9,3), Y has no evidence ---
+    user_1 = "u_decision_case1"
+    client.post("/v1/assessment/consent", json={"user_id": user_1})
+    sess_1 = client.post("/v1/assessment/sessions", json={"user_id": user_1}).json()
+    s_id_1 = sess_1["session_id"]
+
+    prof_1 = CognitiveProfile(
+        user_id=user_1,
+        dimensions={
+            "response_inhibition": DimensionEstimate(
+                dimension="response_inhibition",
+                mean=0.75,
+                lower=0.529913,
+                upper=0.921180,
+                n_evidence=12,
+                last_update=now,
+                alpha=9.0,
+                beta_param=3.0,
+            ),
+        },
+        evidence_history=[],
+        data_quality={},
+        uncertainty={"response_inhibition": 0.921180 - 0.75},
+    )
+    profile_repo.save_profile(prof_1)
+
+    resp_1 = client.get(f"/v1/assessment/sessions/{s_id_1}/decision")
+    assert resp_1.status_code == 200
+    d1 = resp_1.json()
+    assert d1["status"] == "next_task"
+    assert d1["next_task"] == "sequence_span"
+    assert d1["reason"] == (
+        "Sequential Visual Memory is where our estimate is least certain, so we test it next."
+    )
+
+    # --- Case 2: Y (sequential_visual_memory) has Beta(9,3), X has no evidence ---
+    user_2 = "u_decision_case2"
+    client.post("/v1/assessment/consent", json={"user_id": user_2})
+    sess_2 = client.post("/v1/assessment/sessions", json={"user_id": user_2}).json()
+    s_id_2 = sess_2["session_id"]
+
+    prof_2 = CognitiveProfile(
+        user_id=user_2,
+        dimensions={
+            "sequential_visual_memory": DimensionEstimate(
+                dimension="sequential_visual_memory",
+                mean=0.75,
+                lower=0.529913,
+                upper=0.921180,
+                n_evidence=12,
+                last_update=now,
+                alpha=9.0,
+                beta_param=3.0,
+            ),
+        },
+        evidence_history=[],
+        data_quality={},
+        uncertainty={"sequential_visual_memory": 0.921180 - 0.75},
+    )
+    profile_repo.save_profile(prof_2)
+
+    resp_2 = client.get(f"/v1/assessment/sessions/{s_id_2}/decision")
+    assert resp_2.status_code == 200
+    d2 = resp_2.json()
+    assert d2["status"] == "next_task"
+    assert d2["next_task"] == "go_no_go"
+    assert d2["reason"] == (
+        "Response Inhibition is where our estimate is least certain, so we test it next."
+    )
