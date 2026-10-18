@@ -1,7 +1,6 @@
 """Streamlit application entry point for CogLayer.
 
-Orchestrates multi-page user assessment flow:
-consent -> go_no_go -> sequence_span -> profile -> coach
+Orchestrates the decision-driven multi-page user assessment flow.
 
 Requirements: R-010.1, R-010.2, R-010.5
 """
@@ -9,10 +8,13 @@ Requirements: R-010.1, R-010.2, R-010.5
 from __future__ import annotations
 
 import os
+from collections.abc import Mapping
 
 import httpx
 import streamlit as st
 
+from coglayer.ui.api import get_decision
+from coglayer.ui.navigation import navigate_decision
 from coglayer.ui.pages.coach import render_coach_page
 from coglayer.ui.pages.consent import render_consent_page
 from coglayer.ui.pages.dashboard import render_dashboard_page
@@ -53,14 +55,13 @@ def main() -> None:
 
         st.divider()
         st.write("**Navigation**")
-        pages = ["consent", "go_no_go", "sequence_span", "profile", "dashboard", "coach"]
+        pages = ["consent", "next", "profile", "dashboard", "coach"]
         page_labels = {
             "consent": "1. Informed Consent",
-            "go_no_go": "2. Go / No-Go",
-            "sequence_span": "3. Sequence Span",
-            "profile": "4. Cognitive Profile",
-            "dashboard": "5. Cognitive Dashboard",
-            "coach": "6. Cognitive Coach",
+            "next": "2. Next Assessment Task",
+            "profile": "3. Cognitive Profile",
+            "dashboard": "4. Cognitive Dashboard",
+            "coach": "5. Cognitive Coach",
         }
         current_page = st.session_state.get("page", "consent")
         current_idx = pages.index(current_page) if current_page in pages else 0
@@ -77,29 +78,15 @@ def main() -> None:
         st.divider()
         if st.button("New Assessment Session"):
             st.session_state["session_id"] = None
-            st.session_state["page"] = "go_no_go"
+            st.session_state["page"] = "next"
             st.rerun()
 
     user_id = st.session_state["user_id"]
     page = st.session_state["page"]
 
-    # Ensure active session exists when running task pages
-    if page in ("go_no_go", "sequence_span") and not st.session_state.get("session_id"):
-        try:
-            sess_resp = httpx.post(
-                f"{API_URL}/v1/assessment/sessions",
-                json={"user_id": user_id},
-                timeout=5.0,
-            )
-            if sess_resp.status_code == 201:
-                st.session_state["session_id"] = sess_resp.json()["session_id"]
-            elif sess_resp.status_code == 403:
-                # Consent needed first
-                st.session_state["page"] = "consent"
-        except Exception as exc:
-            import logging
-
-            logging.getLogger(__name__).debug("Session check deferred: %s", exc)
+    if page == "next":
+        _handle_next_page(user_id)
+        page = st.session_state.get("page", "next")
 
     session_id = st.session_state.get("session_id", "")
 
@@ -118,6 +105,55 @@ def main() -> None:
         render_coach_page(API_URL, user_id)
     else:
         render_consent_page(API_URL, user_id)
+
+
+def _route_decision(decision: Mapping[str, object]) -> None:
+    """Store the navigation target produced by an assessment decision."""
+    target = navigate_decision(decision)
+    st.session_state["page"] = target.page
+    if target.message:
+        st.session_state["decision_reason"] = target.message
+    else:
+        st.session_state.pop("decision_reason", None)
+    if target.reset_session:
+        st.session_state["session_id"] = None
+        st.info(target.message or "Starting a new assessment session.")
+    st.rerun()
+
+
+def _handle_next_page(user_id: str) -> None:
+    """Create an assessment session when needed and route its next decision."""
+    session_id = st.session_state.get("session_id")
+    if not isinstance(session_id, str) or not session_id:
+        try:
+            response = httpx.post(
+                f"{API_URL}/v1/assessment/sessions",
+                json={"user_id": user_id},
+                timeout=5.0,
+            )
+            if response.status_code == 403:
+                st.session_state["page"] = "consent"
+                st.error("Please provide informed consent before starting an assessment.")
+                return
+            if response.status_code != 201:
+                st.error(f"Failed to create assessment session: HTTP {response.status_code}")
+                return
+            session_data = response.json()
+            session_id = session_data.get("session_id")
+            if not isinstance(session_id, str) or not session_id:
+                st.error("Assessment session response did not include a session ID.")
+                return
+            st.session_state["session_id"] = session_id
+        except (httpx.HTTPError, ValueError) as exc:
+            st.error(f"Error creating assessment session: {exc}")
+            return
+
+    try:
+        decision = get_decision(API_URL, session_id)
+    except (httpx.HTTPError, ValueError) as exc:
+        st.error(f"Error loading assessment decision: {exc}")
+        return
+    _route_decision(decision)
 
 
 if __name__ == "__main__":

@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from unittest.mock import MagicMock, patch
+
+from coglayer.ui.api import get_decision
 from coglayer.ui.navigation import NavigationTarget, navigate_decision
 
 
@@ -55,4 +58,19 @@ def test_unknown_or_malformed_decision_returns_message() -> None:
         page="next",
         reset_session=False,
         message="The assessment could not determine the next step.",
+    )
+
+
+@patch("coglayer.ui.api.httpx.get")
+def test_get_decision_fetches_session_decision(mock_get: MagicMock) -> None:
+    """The UI helper requests the decision endpoint for one session."""
+    mock_get.return_value = MagicMock(
+        status_code=200,
+        json=lambda: {"status": "complete"},
+    )
+
+    assert get_decision("http://testserver", "sess_1") == {"status": "complete"}
+    mock_get.assert_called_once_with(
+        "http://testserver/v1/assessment/sessions/sess_1/decision",
+        timeout=5.0,
     )

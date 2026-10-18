@@ -16,6 +16,9 @@ import streamlit.components.v1 as components
 def render_sequence_span_page(api_url: str, user_id: str, session_id: str) -> None:
     """Render Visual Sequence Span task page."""
     st.header("Task 2: Visual Sequence Span (Sequential Visual Memory Proxy)")
+    decision_reason = st.session_state.get("decision_reason")
+    if isinstance(decision_reason, str):
+        st.info(decision_reason)
 
     st.markdown(
         """
@@ -40,7 +43,7 @@ def render_sequence_span_page(api_url: str, user_id: str, session_id: str) -> No
             if "sequence_span" in session_data.get("completed_tasks", []):
                 st.success("✅ Sequence Span task is completed for this session.")
                 if st.button("Proceed to Cognitive Profile", type="primary"):
-                    st.session_state["page"] = "profile"
+                    st.session_state["page"] = "next"
                     st.rerun()
                 return
     except Exception as e:
@@ -307,7 +310,7 @@ def render_sequence_span_page(api_url: str, user_id: str, session_id: str) -> No
                 if check_resp.status_code == 200:
                     session_info = check_resp.json()
                     if "sequence_span" in session_info.get("completed_tasks", []):
-                        st.session_state["page"] = "profile"
+                        st.session_state["page"] = "next"
                         st.rerun()
                     else:
                         st.info(

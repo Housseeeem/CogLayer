@@ -43,7 +43,7 @@ def render_profile_page(api_url: str, user_id: str) -> None:
     if not dimensions:
         st.info("No assessment evidence has been collected for this user yet.")
         if st.button("Start First Task"):
-            st.session_state["page"] = "go_no_go"
+            st.session_state["page"] = "next"
             st.rerun()
         return
 

@@ -23,7 +23,7 @@ def render_coach_page(api_url: str, user_id: str) -> None:
                 col1, _ = st.columns([2, 3])
                 with col1:
                     if st.button("Return to Tasks"):
-                        st.session_state["page"] = "go_no_go"
+                        st.session_state["page"] = "next"
                         st.rerun()
                 return
             elif resp.status_code != 200:
@@ -43,7 +43,7 @@ def render_coach_page(api_url: str, user_id: str) -> None:
     with col1:
         if st.button("Start Another Session"):
             st.session_state["session_id"] = None
-            st.session_state["page"] = "go_no_go"
+            st.session_state["page"] = "next"
             st.rerun()
     with col2:
         if st.button("Back to Profile View"):

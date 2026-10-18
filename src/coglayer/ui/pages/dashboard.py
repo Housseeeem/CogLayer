@@ -59,7 +59,7 @@ def render_dashboard_page(api_url: str, user_id: str) -> None:
             "Please complete your first session to view your cognitive dashboard."
         )
         if st.button("Start First Task"):
-            st.session_state["page"] = "go_no_go"
+            st.session_state["page"] = "next"
             st.rerun()
         return
 

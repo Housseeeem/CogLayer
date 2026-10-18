@@ -40,6 +40,22 @@ def test_go_no_go_page_renders(
     assert mock_html.called
 
 
+@patch("coglayer.ui.pages.go_no_go.httpx.get")
+@patch("coglayer.ui.pages.go_no_go.st")
+@patch("coglayer.ui.pages.go_no_go.components.html")
+def test_go_no_go_shows_decision_reason(
+    mock_html: MagicMock, mock_st: MagicMock, mock_get: MagicMock
+) -> None:
+    """Go/No-Go displays the stored decision reason before the task."""
+    mock_get.return_value = MagicMock(status_code=200, json=lambda: {"completed_tasks": []})
+    mock_st.session_state = {"decision_reason": "Start with response inhibition."}
+    mock_st.columns.return_value = [MagicMock(), MagicMock()]
+
+    render_go_no_go_page("http://testserver", "user_1", "sess_1")
+
+    mock_st.info.assert_any_call("Start with response inhibition.")
+
+
 @patch("coglayer.ui.pages.sequence_span.httpx.get")
 @patch("coglayer.ui.pages.sequence_span.st")
 @patch("coglayer.ui.pages.sequence_span.components.html")
@@ -51,6 +67,22 @@ def test_sequence_span_page_renders(
     mock_st.columns.return_value = [MagicMock(), MagicMock()]
     render_sequence_span_page("http://testserver", "user_1", "sess_1")
     assert mock_html.called
+
+
+@patch("coglayer.ui.pages.sequence_span.httpx.get")
+@patch("coglayer.ui.pages.sequence_span.st")
+@patch("coglayer.ui.pages.sequence_span.components.html")
+def test_sequence_span_shows_decision_reason(
+    mock_html: MagicMock, mock_st: MagicMock, mock_get: MagicMock
+) -> None:
+    """Sequence Span displays the stored decision reason before the task."""
+    mock_get.return_value = MagicMock(status_code=200, json=lambda: {"completed_tasks": []})
+    mock_st.session_state = {"decision_reason": "Continue with visual memory."}
+    mock_st.columns.return_value = [MagicMock(), MagicMock()]
+
+    render_sequence_span_page("http://testserver", "user_1", "sess_1")
+
+    mock_st.info.assert_any_call("Continue with visual memory.")
 
 
 @patch("coglayer.ui.pages.profile.httpx.get")
@@ -138,7 +170,7 @@ def test_consent_page_gives_consent(
     mock_st.button.return_value = True
     mock_st.session_state = {}
     render_consent_page("http://testserver", "user_1")
-    assert mock_st.session_state.get("page") == "go_no_go"
+    assert mock_st.session_state.get("page") == "next"
 
 
 @patch("coglayer.ui.pages.profile.httpx.get")
@@ -244,3 +276,62 @@ def test_consent_page_error_handling(
     render_consent_page("http://testserver", "user_1")
     assert mock_st.warning.called
     assert mock_st.error.called
+
+
+@patch("coglayer.ui.pages.consent.httpx.post")
+@patch("coglayer.ui.pages.consent.httpx.get")
+@patch("coglayer.ui.pages.consent.st")
+def test_existing_consent_continues_to_next(
+    mock_st: MagicMock, mock_get: MagicMock, mock_post: MagicMock
+) -> None:
+    """Already-consented users enter decision-driven routing."""
+    mock_get.return_value = MagicMock(status_code=200, json=lambda: {"has_consented": True})
+    mock_st.button.return_value = True
+    mock_st.session_state = {}
+
+    render_consent_page("http://testserver", "user_1")
+
+    assert mock_st.session_state["page"] == "next"
+    assert not mock_post.called
+
+
+@patch("coglayer.ui.app.get_decision")
+@patch("coglayer.ui.app.httpx.post")
+def test_next_creates_session_once_and_routes(
+    mock_post: MagicMock, mock_get_decision: MagicMock
+) -> None:
+    """The next route creates one session, then routes using its decision."""
+    from coglayer.ui.app import _handle_next_page
+
+    session_store: dict[str, object] = {}
+    mock_post.return_value = MagicMock(status_code=201, json=lambda: {"session_id": "sess_1"})
+    mock_get_decision.return_value = {
+        "status": "next_task",
+        "next_task": "go_no_go",
+        "reason": "Start here.",
+    }
+
+    with patch("coglayer.ui.app.st.session_state", session_store):
+        _handle_next_page("user_1")
+        _handle_next_page("user_1")
+
+    assert mock_post.call_count == 1
+    assert mock_get_decision.call_count == 2
+    assert session_store["session_id"] == "sess_1"
+    assert session_store["page"] == "go_no_go"
+
+
+def test_next_routes_each_decision_status() -> None:
+    """The next route maps task, insufficient, and complete decisions."""
+    from coglayer.ui.app import _route_decision
+
+    cases = [
+        ({"status": "next_task", "next_task": "sequence_span"}, "sequence_span"),
+        ({"status": "insufficient_data"}, "next"),
+        ({"status": "complete"}, "profile"),
+    ]
+    for decision, expected_page in cases:
+        state: dict[str, object] = {}
+        with patch("coglayer.ui.app.st.session_state", state), patch("coglayer.ui.app.st.rerun"):
+            _route_decision(decision)
+        assert state["page"] == expected_page
