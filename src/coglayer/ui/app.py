@@ -115,6 +115,9 @@ def _route_decision(decision: Mapping[str, object]) -> None:
         st.session_state["decision_reason"] = target.message
     else:
         st.session_state.pop("decision_reason", None)
+    if target.page == "next" and not target.reset_session:
+        st.warning(target.message or "The assessment could not determine the next step.")
+        return
     if target.reset_session:
         st.session_state["session_id"] = None
         st.info(target.message or "Starting a new assessment session.")

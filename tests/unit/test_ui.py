@@ -332,6 +332,42 @@ def test_next_routes_each_decision_status() -> None:
     ]
     for decision, expected_page in cases:
         state: dict[str, object] = {}
-        with patch("coglayer.ui.app.st.session_state", state), patch("coglayer.ui.app.st.rerun"):
+        with (
+            patch("coglayer.ui.app.st.session_state", state),
+            patch("coglayer.ui.app.st.rerun") as mock_rerun,
+        ):
             _route_decision(decision)
         assert state["page"] == expected_page
+        assert mock_rerun.call_count == 1
+
+
+def test_next_unknown_task_warns_without_rerun() -> None:
+    """An unknown task does not repeatedly fetch the same decision."""
+    from coglayer.ui.app import _route_decision
+
+    state: dict[str, object] = {}
+    with (
+        patch("coglayer.ui.app.st.session_state", state),
+        patch("coglayer.ui.app.st.rerun") as mock_rerun,
+        patch("coglayer.ui.app.st.warning") as mock_warning,
+    ):
+        _route_decision({"status": "next_task", "next_task": "unknown_game"})
+
+    mock_rerun.assert_not_called()
+    mock_warning.assert_called_once_with("The next assessment task is unavailable.")
+
+
+def test_next_malformed_decision_warns_without_rerun() -> None:
+    """A malformed decision does not repeatedly fetch the same decision."""
+    from coglayer.ui.app import _route_decision
+
+    state: dict[str, object] = {}
+    with (
+        patch("coglayer.ui.app.st.session_state", state),
+        patch("coglayer.ui.app.st.rerun") as mock_rerun,
+        patch("coglayer.ui.app.st.warning") as mock_warning,
+    ):
+        _route_decision({})
+
+    mock_rerun.assert_not_called()
+    mock_warning.assert_called_once_with("The assessment could not determine the next step.")
