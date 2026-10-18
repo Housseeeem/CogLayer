@@ -6,12 +6,13 @@ given the results collected in the current session.
 The engine works from the TaskRegistry instead of a fixed task order, proposing
 the next task targeting the dimension whose estimate is the least certain
 (widest 90% credible interval). If multiple dimensions are tied for maximum
-uncertainty, the tie is broken deterministically by registry order.
+uncertainty, the tie is broken deterministically by alphabetical order of task_id
+(as returned by list_ids()).
 
 Decision rules (applied in strict priority order)
 --------------------------------------------------
 1. Propose the next task for the dimension with the least certain estimate
-   among uncompleted registered tasks.
+   among uncompleted registered tasks (ties broken alphabetically by task_id).
 2. When all registered tasks have results, verify data quality:
    any required task with completeness < settings.completeness_threshold
    -> insufficient_data.
@@ -48,6 +49,10 @@ class AdaptiveDecisionEngine:
 
     All methods are pure: they read inputs and return an ``EngineDecision``
     with no side effects, no I/O, and no randomness.
+
+    Proposes the next task targeting the cognitive dimension whose estimate is
+    the least certain (widest 90% credible interval). If multiple dimensions are
+    tied for maximum uncertainty, resolves alphabetically by task_id.
 
     Requirements: R-007.1, R-007.2, R-007.3
     """

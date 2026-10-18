@@ -123,8 +123,10 @@ class InMemoryTaskRegistry:
     def list_descriptors(self) -> list[TaskDescriptor]:
         """Return all unique registered task descriptors (latest per task_id).
 
+        Descriptors are sorted alphabetically by task_id.
+
         Returns:
-            A list of TaskDescriptor objects ordered by list_ids().
+            A list of TaskDescriptor objects ordered alphabetically by task_id.
         """
         descriptors: list[TaskDescriptor] = []
         for task_id in self.list_ids():

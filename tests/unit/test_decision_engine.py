@@ -395,12 +395,21 @@ def test_ac_least_certain_dimension_proposed() -> None:
 
 
 def test_ac_tie_breaking_registry_order_deterministic() -> None:
-    """AC (b): Tie (both without evidence) -> registry order, identical on two calls."""
+    """AC (b): Tie (both without evidence) -> alphabetical order by task_id, identical on two calls.
+
+    Hand-derived:
+      b_task registered first, a_task registered second.
+      Both dimensions have no evidence -> both at uniform prior Beta(1,1) with width 0.90.
+      Tied uncertainty is resolved alphabetically by task_id (from list_ids()).
+      Alphabetical order: "a_task" < "b_task".
+      Expected next_task: "a_task" (NOT registration order "b_task").
+      Identical on repeated calls (deterministic).
+    """
     from coglayer.signals.registry import InMemoryTaskRegistry
 
     registry = InMemoryTaskRegistry()
-    registry.register(_descriptor("task_alpha", "dim_alpha"))
-    registry.register(_descriptor("task_beta", "dim_beta"))
+    registry.register(_descriptor("b_task", "dim_b"))
+    registry.register(_descriptor("a_task", "dim_a"))
 
     settings = _settings()
     engine = AdaptiveDecisionEngine(registry=registry)
@@ -410,9 +419,9 @@ def test_ac_tie_breaking_registry_order_deterministic() -> None:
     decision2 = engine.decide(results=[], settings=settings)
 
     assert decision1.status == "next_task"
-    assert decision1.next_task == "task_alpha"
+    assert decision1.next_task == "a_task"
     assert decision2.status == "next_task"
-    assert decision2.next_task == "task_alpha"
+    assert decision2.next_task == "a_task"
 
 
 def test_ac_completed_tasks_not_proposed_and_completion() -> None:
