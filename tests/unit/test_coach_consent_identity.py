@@ -17,7 +17,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from coglayer.api.app import create_app
-from coglayer.api.deps import get_coach, get_profile_repo
+from coglayer.api.deps import get_assessment_repo, get_coach, get_profile_repo
 from coglayer.core.settings import Settings
 
 
@@ -145,6 +145,30 @@ class TestCoachConsentVerification:
         finally:
             app.dependency_overrides.clear()
 
+    def test_coach_refused_before_session_read_when_consent_missing(
+        self, tmp_path: pathlib.Path
+    ) -> None:
+        """Ordering: unconsented user check refuses before session is read."""
+        client, app, settings = _client(tmp_path)
+        user_id = "user_unconsented_session"
+
+        real_assessment_repo = get_assessment_repo(settings)
+        failing_assessment_repo = MagicMock(wraps=real_assessment_repo)
+        failing_assessment_repo.get_session.side_effect = AssertionError(
+            "Session must not be read when consent is missing"
+        )
+        app.dependency_overrides[get_assessment_repo] = lambda: failing_assessment_repo
+
+        try:
+            resp = client.post(
+                f"/v1/assessment/coach/{user_id}",
+                json={"session_id": "any_session_id"},
+            )
+            assert resp.status_code == 403
+            assert resp.json()["detail"] == "User has not given active consent."
+        finally:
+            app.dependency_overrides.clear()
+
 
 class TestCoachIdentityVerification:
     """Case b: request whose identity does not match user_id in path/query is refused."""
@@ -211,6 +235,23 @@ class TestCoachIdentityVerification:
             assert "Based on these two tasks only" not in resp.text
         finally:
             app.dependency_overrides.clear()
+
+    def test_coach_refused_when_session_belongs_to_another_user(
+        self, tmp_path: pathlib.Path
+    ) -> None:
+        """Case c: user A requests feedback referencing user B's session -> 403."""
+        client, _, _ = _client(tmp_path)
+        user_a = "user_a"
+        user_b = "user_b"
+        session_b = _complete_assessment_for_user(client, user_b)
+        _complete_assessment_for_user(client, user_a)
+
+        resp = client.post(
+            f"/v1/assessment/coach/{user_a}",
+            json={"session_id": session_b},
+        )
+        assert resp.status_code == 403
+        assert resp.json()["detail"] == "Session not found or forbidden for this user."
 
 
 class TestCoachNonRegression:
