@@ -24,6 +24,7 @@ import pytest
 from coglayer.coach.decision import PROTOCOL_ORDER, AdaptiveDecisionEngine
 from coglayer.core.models import (
     DataQuality,
+    TaskDescriptor,
     TaskResult,
 )
 from coglayer.core.settings import Settings
@@ -322,3 +323,392 @@ def test_protocol_order_is_tuple() -> None:
     """PROTOCOL_ORDER must be a tuple (immutable), not a list."""
     assert isinstance(PROTOCOL_ORDER, tuple)
     assert PROTOCOL_ORDER == ("go_no_go", "sequence_span")
+
+
+# ---------------------------------------------------------------------------
+# Step 1: Generalized decision engine tests
+# ---------------------------------------------------------------------------
+
+
+def _descriptor(task_id: str, dimension: str) -> TaskDescriptor:
+    from coglayer.core.models import Reading, TaskDescriptor
+
+    return TaskDescriptor(
+        task_id=task_id,
+        version="1.0",
+        instructions=f"Instructions for {task_id}",
+        target_dimensions=[dimension],
+        readings=[
+            Reading(metric=f"{task_id}_score", dimension=dimension, status="profile"),
+        ],
+        parameters={},
+    )
+
+
+def test_ac_least_certain_dimension_proposed() -> None:
+    """AC (a): Dimension A has no evidence, dimension B has Beta(9,3) -> next task is A.
+    Swap them -> next task is B.
+
+    Hand-derived:
+      Prior Beta(1,1): variance = 1/12 = 0.0833
+      Posterior Beta(9,3): variance = 27/(144*13) = 0.0144
+      Variance Beta(1,1) > variance Beta(9,3), so Beta(1,1) is more uncertain.
+
+    Scipy credible intervals (TESTED):
+      width Beta(1,1): beta.ppf(0.95, 1, 1) - beta.ppf(0.05, 1, 1) = 0.95 - 0.05 = 0.900000
+      width Beta(9,3): beta.ppf(0.95, 9, 3) - beta.ppf(0.05, 9, 3) = 0.921180 - 0.529913 = 0.391267
+      0.900000 > 0.391267 -> Dimension A without evidence is less certain than Dimension B.
+    """
+    import scipy.stats
+
+    from coglayer.profile.model import BetaProfileModel
+    from coglayer.signals.registry import InMemoryTaskRegistry
+
+    # TESTED: verify scipy interval widths match hand-derived relationship
+    w_prior = float(scipy.stats.beta.ppf(0.95, 1, 1) - scipy.stats.beta.ppf(0.05, 1, 1))
+    w_b93 = float(scipy.stats.beta.ppf(0.95, 9, 3) - scipy.stats.beta.ppf(0.05, 9, 3))
+    assert w_prior == pytest.approx(0.90, abs=1e-4)
+    assert w_b93 == pytest.approx(0.391267, abs=1e-4)
+    assert w_prior > w_b93
+
+    registry = InMemoryTaskRegistry()
+    registry.register(_descriptor("task_a", "dim_a"))
+    registry.register(_descriptor("task_b", "dim_b"))
+
+    settings = _settings()
+
+    # Case 1: dim_a has no evidence, dim_b has Beta(9,3)
+    model1 = BetaProfileModel()
+    model1.seed_dimension("dim_b", alpha=9.0, beta=3.0, n_evidence=1, last_update=_TS)
+    engine1 = AdaptiveDecisionEngine(registry=registry, interval_fn=model1.credible_interval)
+    decision1 = engine1.decide(results=[], settings=settings)
+    assert decision1.status == "next_task"
+    assert decision1.next_task == "task_a"
+
+    # Case 2: swap them -> dim_a has Beta(9,3), dim_b has no evidence
+    model2 = BetaProfileModel()
+    model2.seed_dimension("dim_a", alpha=9.0, beta=3.0, n_evidence=1, last_update=_TS)
+    engine2 = AdaptiveDecisionEngine(registry=registry, interval_fn=model2.credible_interval)
+    decision2 = engine2.decide(results=[], settings=settings)
+    assert decision2.status == "next_task"
+    assert decision2.next_task == "task_b"
+
+
+def test_ac_tie_breaking_registry_order_deterministic() -> None:
+    """AC (b): Tie (both without evidence) -> alphabetical order by task_id, identical on two calls.
+
+    Hand-derived:
+      b_task registered first, a_task registered second.
+      Both dimensions have no evidence -> both at uniform prior Beta(1,1) with width 0.90.
+      Tied uncertainty is resolved alphabetically by task_id (from list_ids()).
+      Alphabetical order: "a_task" < "b_task".
+      Expected next_task: "a_task" (NOT registration order "b_task").
+      Identical on repeated calls (deterministic).
+    """
+    from coglayer.signals.registry import InMemoryTaskRegistry
+
+    registry = InMemoryTaskRegistry()
+    registry.register(_descriptor("b_task", "dim_b"))
+    registry.register(_descriptor("a_task", "dim_a"))
+
+    settings = _settings()
+    engine = AdaptiveDecisionEngine(registry=registry)
+
+    # Both dimensions at Beta(1,1) -> tied uncertainty
+    decision1 = engine.decide(results=[], settings=settings)
+    decision2 = engine.decide(results=[], settings=settings)
+
+    assert decision1.status == "next_task"
+    assert decision1.next_task == "a_task"
+    assert decision2.status == "next_task"
+    assert decision2.next_task == "a_task"
+
+
+def test_ac_completed_tasks_not_proposed_and_completion() -> None:
+    """AC (c): Tasks already completed in current session are not proposed again;
+    when every registered task is completed, protocol is complete."""
+    from coglayer.signals.registry import InMemoryTaskRegistry
+
+    registry = InMemoryTaskRegistry()
+    registry.register(_descriptor("task_a", "dim_a"))
+    registry.register(_descriptor("task_b", "dim_b"))
+
+    settings = _settings()
+    engine = AdaptiveDecisionEngine(registry=registry)
+
+    # First task proposed
+    d1 = engine.decide(results=[], settings=settings)
+    assert d1.status == "next_task"
+    assert d1.next_task == "task_a"
+
+    # task_a completed in this session -> propose task_b
+    d2 = engine.decide(
+        results=[_result("task_a", completeness=1.0)],
+        settings=settings,
+    )
+    assert d2.status == "next_task"
+    assert d2.next_task == "task_b"
+
+    # Both completed -> protocol complete
+    d3 = engine.decide(
+        results=[
+            _result("task_a", completeness=1.0),
+            _result("task_b", completeness=1.0),
+        ],
+        settings=settings,
+    )
+    assert d3.status == "complete"
+    assert d3.next_task is None
+
+
+def test_ac_fictitious_third_task_extensibility() -> None:
+    """AC (d): A fictitious 3rd task registered in a test registry:
+    protocol now requires it; user with data in first two dims and none in third
+    is proposed 3rd task first; protocol is complete only after all 3 are done."""
+    from coglayer.profile.model import BetaProfileModel
+    from coglayer.signals.registry import InMemoryTaskRegistry
+
+    registry = InMemoryTaskRegistry()
+    registry.register(_descriptor("task_1", "dim_1"))
+    registry.register(_descriptor("task_2", "dim_2"))
+    registry.register(_descriptor("task_3", "dim_3"))
+
+    settings = _settings()
+
+    # User with data in dim_1 and dim_2, none in dim_3
+    model = BetaProfileModel()
+    model.seed_dimension("dim_1", alpha=8.0, beta=4.0, n_evidence=2, last_update=_TS)
+    model.seed_dimension("dim_2", alpha=9.0, beta=3.0, n_evidence=2, last_update=_TS)
+
+    engine = AdaptiveDecisionEngine(registry=registry, interval_fn=model.credible_interval)
+
+    # Proposed first: task_3 (least certain estimate)
+    d1 = engine.decide(results=[], settings=settings)
+    assert d1.status == "next_task"
+    assert d1.next_task == "task_3"
+
+    # After task_3 is done, protocol still requires task_1 and task_2
+    d2 = engine.decide(
+        results=[_result("task_3", completeness=1.0)],
+        settings=settings,
+    )
+    assert d2.status == "next_task"
+    assert d2.next_task in ("task_1", "task_2")
+
+    other_task = "task_2" if d2.next_task == "task_1" else "task_1"
+    d3 = engine.decide(
+        results=[
+            _result("task_3", completeness=1.0),
+            _result(d2.next_task, completeness=1.0),
+        ],
+        settings=settings,
+    )
+    assert d3.status == "next_task"
+    assert d3.next_task == other_task
+
+    # Only complete when all 3 are done
+    d4 = engine.decide(
+        results=[
+            _result("task_1", completeness=1.0),
+            _result("task_2", completeness=1.0),
+            _result("task_3", completeness=1.0),
+        ],
+        settings=settings,
+    )
+    assert d4.status == "complete"
+    assert d4.next_task is None
+
+
+def test_ac_decision_reason_case_a_all_candidate_dims_same_width() -> None:
+    """AC Step 3 (a): All candidate dimensions have the same width.
+
+    Hand-derived:
+      New user, no results.
+      Default tasks: go_no_go (response_inhibition), sequence_span (sequential_visual_memory).
+      Both dimensions at prior Beta(1,1), width = 0.90.
+      All candidate dimensions have the same width.
+      Alphabetical tie-break chooses go_no_go.
+      Label for response_inhibition is 'Response Inhibition'.
+      Expected reason: 'We have no evidence yet for Response Inhibition, so we start there.'
+    """
+    import re
+
+    settings = _settings()
+    engine = AdaptiveDecisionEngine()
+    decision = engine.decide(results=[], settings=settings)
+
+    expected = "We have no evidence yet for Response Inhibition, so we start there."
+    assert decision.reason == expected
+
+    # Assert no raw identifiers
+    raw_ids = ["go_no_go", "response_inhibition", "sequence_span"]
+    for raw_id in raw_ids:
+        assert raw_id not in str(decision.reason)
+
+    # Assert no forbidden clinical words
+    forbidden = ["diagnosis", "disorder", "deficit", "impairment", "iq", "patient", "patients"]
+    for word in forbidden:
+        pattern = rf"\b{re.escape(word)}\b"
+        assert not re.search(pattern, str(decision.reason), re.IGNORECASE)
+
+
+def test_ac_decision_reason_case_b_otherwise_least_certain() -> None:
+    """AC Step 3 (b): Candidate dimensions have different widths.
+
+    Hand-derived:
+      Profile has Beta(9,3) for sequential_visual_memory (width 0.391267).
+      response_inhibition has no evidence (width 0.90).
+      Widths differ (0.90 != 0.391267).
+      Least certain dimension is response_inhibition.
+      Label for response_inhibition is 'Response Inhibition'.
+      Expected reason:
+        'Response Inhibition is where our estimate is least certain, so we test it next.'
+    """
+    import re
+
+    from coglayer.profile.model import BetaProfileModel
+
+    model = BetaProfileModel()
+    model.seed_dimension(
+        "sequential_visual_memory", alpha=9.0, beta=3.0, n_evidence=1, last_update=_TS
+    )
+    engine = AdaptiveDecisionEngine(interval_fn=model.credible_interval)
+
+    decision = engine.decide(results=[], settings=_settings())
+    expected = "Response Inhibition is where our estimate is least certain, so we test it next."
+    assert decision.reason == expected
+
+    # Assert no raw identifiers
+    raw_ids = ["go_no_go", "response_inhibition", "sequence_span"]
+    for raw_id in raw_ids:
+        assert raw_id not in str(decision.reason)
+
+    # Assert no forbidden clinical words
+    forbidden = ["diagnosis", "disorder", "deficit", "impairment", "iq", "patient", "patients"]
+    for word in forbidden:
+        pattern = rf"\b{re.escape(word)}\b"
+        assert not re.search(pattern, str(decision.reason), re.IGNORECASE)
+
+
+def test_ac_decision_reason_non_clinical() -> None:
+    """AC (e): Decision carries a plain-words reason without raw identifiers or clinical terms."""
+    import re
+
+    from coglayer.signals.registry import InMemoryTaskRegistry
+
+    registry = InMemoryTaskRegistry()
+    registry.register(_descriptor("task_inhibit", "response_inhibition"))
+
+    settings = _settings()
+    engine = AdaptiveDecisionEngine(registry=registry)
+
+    decision = engine.decide(results=[], settings=settings)
+    assert decision.status == "next_task"
+    assert decision.next_task == "task_inhibit"
+    assert decision.reason is not None
+
+    # No raw identifiers
+    for raw_id in ("task_inhibit", "response_inhibition"):
+        assert raw_id not in decision.reason
+
+    # Clinical words blacklist (whole words, case-insensitive)
+    forbidden = ["diagnosis", "disorder", "deficit", "impairment", "iq", "patient", "patients"]
+    for word in forbidden:
+        pattern = rf"\b{re.escape(word)}\b"
+        assert not re.search(pattern, decision.reason, re.IGNORECASE), (
+            f"Forbidden word '{word}' found in reason: {decision.reason!r}"
+        )
+
+
+def test_decision_with_cognitive_profile_instance() -> None:
+    """Decision engine reads dimension estimate bounds directly from CognitiveProfile."""
+    from coglayer.core.models import CognitiveProfile, DimensionEstimate
+    from coglayer.signals.registry import InMemoryTaskRegistry
+
+    registry = InMemoryTaskRegistry()
+    registry.register(_descriptor("task_x", "dim_x"))
+    registry.register(_descriptor("task_y", "dim_y"))
+
+    # dim_x has wide credible interval (upper - lower = 0.8), dim_y has narrow (upper - lower = 0.2)
+    profile = CognitiveProfile(
+        user_id="u_test",
+        dimensions={
+            "dim_x": DimensionEstimate(
+                dimension="dim_x",
+                mean=0.5,
+                lower=0.1,
+                upper=0.9,
+                n_evidence=2,
+                last_update=_TS,
+            ),
+            "dim_y": DimensionEstimate(
+                dimension="dim_y",
+                mean=0.5,
+                lower=0.4,
+                upper=0.6,
+                n_evidence=20,
+                last_update=_TS,
+            ),
+        },
+        evidence_history=[],
+        data_quality={},
+        uncertainty={},
+    )
+
+    engine = AdaptiveDecisionEngine()
+    decision = engine.decide(
+        results=[],
+        settings=_settings(),
+        profile=profile,
+        registry=registry,
+    )
+    assert decision.status == "next_task"
+    assert decision.next_task == "task_x"
+
+
+def test_decision_with_profile_model_instance() -> None:
+    """Decision engine accepts an object with credible_interval as profile."""
+    from coglayer.profile.model import BetaProfileModel
+    from coglayer.signals.registry import InMemoryTaskRegistry
+
+    registry = InMemoryTaskRegistry()
+    registry.register(_descriptor("task_a", "dim_a"))
+    registry.register(_descriptor("task_b", "dim_b"))
+
+    model = BetaProfileModel()
+    model.seed_dimension("dim_a", alpha=9.0, beta=3.0, n_evidence=1, last_update=_TS)
+    # dim_b has no evidence (width 0.90) > dim_a (width 0.391)
+
+    engine = AdaptiveDecisionEngine(registry=registry)
+    decision = engine.decide(
+        results=[],
+        settings=_settings(),
+        profile=model,
+    )
+    assert decision.status == "next_task"
+    assert decision.next_task == "task_b"
+
+
+def test_decision_descriptor_without_target_dimensions() -> None:
+    """Descriptor without target_dimensions falls back to task_id as dimension."""
+    from coglayer.core.models import Reading, TaskDescriptor
+    from coglayer.signals.registry import InMemoryTaskRegistry
+
+    desc = TaskDescriptor(
+        task_id="standalone_task",
+        version="1.0",
+        instructions="Do standalone task.",
+        target_dimensions=[],
+        readings=[
+            Reading(metric="standalone_score", dimension="speed", status="observation"),
+        ],
+        parameters={},
+    )
+    registry = InMemoryTaskRegistry()
+    registry.register(desc)
+
+    engine = AdaptiveDecisionEngine(registry=registry)
+    decision = engine.decide(results=[], settings=_settings())
+    assert decision.status == "next_task"
+    assert decision.next_task == "standalone_task"
+    assert "Standalone Task" in str(decision.reason)

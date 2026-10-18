@@ -163,6 +163,14 @@ class TaskRegistry(Protocol):  # pragma: no cover
         """
         ...
 
+    def list_descriptors(self) -> list[TaskDescriptor]:
+        """Return all unique registered task descriptors.
+
+        Returns:
+            A list of unique TaskDescriptor objects.
+        """
+        ...
+
 
 # ---------------------------------------------------------------------------
 # Repository protocols (R-005.6)
