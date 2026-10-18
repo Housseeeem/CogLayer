@@ -133,24 +133,31 @@ class AdaptiveDecisionEngine:
         remaining_tasks = [d for d in descriptors if d.task_id not in results_by_task]
 
         if remaining_tasks:
-            max_unc = -1.0
-            best_task = remaining_tasks[0]
-            best_dim = (
-                best_task.target_dimensions[0] if best_task.target_dimensions else best_task.task_id
-            )
-
+            task_evaluations: list[tuple[TaskDescriptor, str, float]] = []
             for desc in remaining_tasks:
                 dim = desc.target_dimensions[0] if desc.target_dimensions else desc.task_id
                 unc = self._dimension_uncertainty(dim, profile=profile)
+                task_evaluations.append((desc, dim, unc))
+
+            max_unc = -1.0
+            best_task = task_evaluations[0][0]
+            best_dim = task_evaluations[0][1]
+
+            for desc, dim, unc in task_evaluations:
                 if unc > max_unc:
                     max_unc = unc
                     best_task = desc
                     best_dim = dim
 
-            reason = (
-                f"Proposing task '{best_task.task_id}' for dimension "
-                f"'{best_dim}' with least certain estimate."
-            )
+            label = best_dim.replace("_", " ").title()
+            widths = [unc for _, _, unc in task_evaluations]
+            all_same_width = len(widths) > 1 and all(abs(w - widths[0]) < 1e-5 for w in widths)
+
+            if all_same_width:
+                reason = f"We have no evidence yet for {label}, so we start there."
+            else:
+                reason = f"{label} is where our estimate is least certain, so we test it next."
+
             return EngineDecision(
                 next_task=best_task.task_id,
                 status="next_task",

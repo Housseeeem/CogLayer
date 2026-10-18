@@ -519,9 +519,79 @@ def test_ac_fictitious_third_task_extensibility() -> None:
     assert d4.next_task is None
 
 
+def test_ac_decision_reason_case_a_all_candidate_dims_same_width() -> None:
+    """AC Step 3 (a): All candidate dimensions have the same width.
+
+    Hand-derived:
+      New user, no results.
+      Default tasks: go_no_go (response_inhibition), sequence_span (sequential_visual_memory).
+      Both dimensions at prior Beta(1,1), width = 0.90.
+      All candidate dimensions have the same width.
+      Alphabetical tie-break chooses go_no_go.
+      Label for response_inhibition is 'Response Inhibition'.
+      Expected reason: 'We have no evidence yet for Response Inhibition, so we start there.'
+    """
+    import re
+
+    settings = _settings()
+    engine = AdaptiveDecisionEngine()
+    decision = engine.decide(results=[], settings=settings)
+
+    expected = "We have no evidence yet for Response Inhibition, so we start there."
+    assert decision.reason == expected
+
+    # Assert no raw identifiers
+    raw_ids = ["go_no_go", "response_inhibition", "sequence_span"]
+    for raw_id in raw_ids:
+        assert raw_id not in str(decision.reason)
+
+    # Assert no forbidden clinical words
+    forbidden = ["diagnosis", "disorder", "deficit", "impairment", "iq", "patient", "patients"]
+    for word in forbidden:
+        pattern = rf"\b{re.escape(word)}\b"
+        assert not re.search(pattern, str(decision.reason), re.IGNORECASE)
+
+
+def test_ac_decision_reason_case_b_otherwise_least_certain() -> None:
+    """AC Step 3 (b): Candidate dimensions have different widths.
+
+    Hand-derived:
+      Profile has Beta(9,3) for sequential_visual_memory (width 0.391267).
+      response_inhibition has no evidence (width 0.90).
+      Widths differ (0.90 != 0.391267).
+      Least certain dimension is response_inhibition.
+      Label for response_inhibition is 'Response Inhibition'.
+      Expected reason:
+        'Response Inhibition is where our estimate is least certain, so we test it next.'
+    """
+    import re
+
+    from coglayer.profile.model import BetaProfileModel
+
+    model = BetaProfileModel()
+    model.seed_dimension(
+        "sequential_visual_memory", alpha=9.0, beta=3.0, n_evidence=1, last_update=_TS
+    )
+    engine = AdaptiveDecisionEngine(interval_fn=model.credible_interval)
+
+    decision = engine.decide(results=[], settings=_settings())
+    expected = "Response Inhibition is where our estimate is least certain, so we test it next."
+    assert decision.reason == expected
+
+    # Assert no raw identifiers
+    raw_ids = ["go_no_go", "response_inhibition", "sequence_span"]
+    for raw_id in raw_ids:
+        assert raw_id not in str(decision.reason)
+
+    # Assert no forbidden clinical words
+    forbidden = ["diagnosis", "disorder", "deficit", "impairment", "iq", "patient", "patients"]
+    for word in forbidden:
+        pattern = rf"\b{re.escape(word)}\b"
+        assert not re.search(pattern, str(decision.reason), re.IGNORECASE)
+
+
 def test_ac_decision_reason_non_clinical() -> None:
-    """AC (e): Decision carries a short human-readable reason naming the dimension
-    and why ("least certain estimate"), containing no clinical words."""
+    """AC (e): Decision carries a plain-words reason without raw identifiers or clinical terms."""
     import re
 
     from coglayer.signals.registry import InMemoryTaskRegistry
@@ -536,11 +606,13 @@ def test_ac_decision_reason_non_clinical() -> None:
     assert decision.status == "next_task"
     assert decision.next_task == "task_inhibit"
     assert decision.reason is not None
-    assert "response_inhibition" in decision.reason
-    assert "least certain" in decision.reason.lower()
+
+    # No raw identifiers
+    for raw_id in ("task_inhibit", "response_inhibition"):
+        assert raw_id not in decision.reason
 
     # Clinical words blacklist (whole words, case-insensitive)
-    forbidden = ["diagnosis", "disorder", "deficit", "impairment", "iq", "patient"]
+    forbidden = ["diagnosis", "disorder", "deficit", "impairment", "iq", "patient", "patients"]
     for word in forbidden:
         pattern = rf"\b{re.escape(word)}\b"
         assert not re.search(pattern, decision.reason, re.IGNORECASE), (
@@ -639,4 +711,4 @@ def test_decision_descriptor_without_target_dimensions() -> None:
     decision = engine.decide(results=[], settings=_settings())
     assert decision.status == "next_task"
     assert decision.next_task == "standalone_task"
-    assert "standalone_task" in str(decision.reason)
+    assert "Standalone Task" in str(decision.reason)
