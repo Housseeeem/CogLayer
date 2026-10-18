@@ -74,7 +74,14 @@ def get_coaching_feedback(
             detail="Forbidden for this user.",
         )
 
-    # 1.5 Optional session verification if session_id provided in body
+    # 2. Consent verification
+    if not consent_service.has_consented(user_id):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="User has not given active consent.",
+        )
+
+    # 3. Optional session verification if session_id provided in body
     if body is not None and body.session_id is not None:
         session = assessment_repo.get_session(body.session_id)
         if session is None or session.user_id != user_id:
@@ -82,13 +89,6 @@ def get_coaching_feedback(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Session not found or forbidden for this user.",
             )
-
-    # 2. Consent verification
-    if not consent_service.has_consented(user_id):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="User has not given active consent.",
-        )
 
     sessions = assessment_repo.get_sessions_by_user(user_id)
     all_session_results = [assessment_repo.get_results(s.session_id) for s in sessions]
