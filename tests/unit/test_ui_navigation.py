@@ -5,6 +5,7 @@ from __future__ import annotations
 from unittest.mock import MagicMock, patch
 
 from coglayer.ui.api import get_decision
+from coglayer.ui.app import _page_from_url
 from coglayer.ui.navigation import NavigationTarget, navigate_decision
 
 
@@ -74,3 +75,21 @@ def test_get_decision_fetches_session_decision(mock_get: MagicMock) -> None:
         "http://testserver/v1/assessment/sessions/sess_1/decision",
         timeout=5.0,
     )
+
+
+def test_sidebar_pages_exclude_next_and_merge_profile() -> None:
+    """Visible navigation hides Next Assessment Task and merges profile with dashboard."""
+    from coglayer.ui.app import _SIDEBAR_LABELS, _SIDEBAR_PAGES
+
+    assert _SIDEBAR_PAGES == ("consent", "lab", "profile", "coach", "ioi")
+    assert "next" not in _SIDEBAR_PAGES
+    assert "dashboard" not in _SIDEBAR_PAGES
+    assert _SIDEBAR_LABELS["lab"] == "2. Cognitive Lab"
+    assert _SIDEBAR_LABELS["profile"] == "3. Cognitive Profile & Dashboard"
+
+
+def test_ioi_url_selects_ioi_page() -> None:
+    """The direct IOI browser URL maps to the custom page dispatcher."""
+    assert _page_from_url("http://localhost:8501/ioi") == "ioi"
+    assert _page_from_url("http://localhost:8501/ioi/") == "ioi"
+    assert _page_from_url("http://localhost:8501/") is None

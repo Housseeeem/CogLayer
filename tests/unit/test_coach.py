@@ -21,11 +21,14 @@ import re
 from datetime import UTC, datetime
 from pathlib import Path
 
+import pytest
+
 from coglayer.coach.coach import (
     FORBIDDEN_WORDS_PATTERN,
     CognitiveCoach,
     validate_llm_reply,
 )
+from coglayer.core.brain_twin import BrainTwinSignal, BrainTwinState
 from coglayer.core.models import (
     CognitiveProfile,
     DataQuality,
@@ -298,6 +301,67 @@ def test_ac_provider_exception_fallback() -> None:
     assert "Observations:" in result
 
 
+def test_coach_adds_neutral_context_only_for_flagged_variation() -> None:
+    profile = _make_profile()
+    flagged = BrainTwinSignal(
+        state=BrainTwinState.VARIATION_FLAGGED,
+        comparable_observation_count=5,
+        flagged_observation_id="session-4|go_no_go|response_inhibition|stable",
+    )
+    normal = BrainTwinSignal(
+        state=BrainTwinState.NO_VARIATION,
+        comparable_observation_count=4,
+    )
+    insufficient = BrainTwinSignal(
+        state=BrainTwinState.INSUFFICIENT_DATA,
+        comparable_observation_count=2,
+    )
+
+    flagged_text = _COACH.generate_feedback(profile, brain_twin_signal=flagged)
+    normal_text = _COACH.generate_feedback(profile, brain_twin_signal=normal)
+    insufficient_text = _COACH.generate_feedback(profile, brain_twin_signal=insufficient)
+
+    assert "differs from the user's usual reference" in flagged_text
+    assert "does not determine its cause" in flagged_text
+    assert "differs from the user's usual reference" not in normal_text
+    assert "differs from the user's usual reference" not in insufficient_text
+    assert "stress" not in flagged_text.lower()
+    assert "fatigue" not in flagged_text.lower()
+    assert "disorder" not in flagged_text.lower()
+
+
+def test_coach_keeps_normal_feedback_without_signal() -> None:
+    profile = _make_profile()
+
+    result = _COACH.generate_feedback(profile)
+
+    assert "differs from the user's usual reference" not in result
+    assert _DISCLAIMER in result
+
+
+def test_provider_receives_only_neutral_derived_context() -> None:
+    profile = _make_profile()
+    signal = BrainTwinSignal(
+        state=BrainTwinState.VARIATION_FLAGGED,
+        comparable_observation_count=5,
+        flagged_observation_id="session-4|go_no_go|response_inhibition|stable",
+    )
+    captured: list[LLMRequest] = []
+
+    class CapturingProvider:
+        def complete(self, request: LLMRequest) -> LLMResponse:
+            captured.append(request)
+            return LLMResponse(text="Keep going and choose what feels useful.")
+
+    _COACH.generate_feedback(profile, CapturingProvider(), brain_twin_signal=signal)
+
+    prompt = captured[0].prompt
+    assert "session-4" not in prompt
+    assert "VARIATION_FLAGGED" not in prompt
+    assert "differs from the user's usual reference" in prompt
+    assert "evidence_history" not in prompt
+
+
 # ---------------------------------------------------------------------------
 # No ranking or global score
 # ---------------------------------------------------------------------------
@@ -386,7 +450,7 @@ def test_coach_feedback_empty_profile() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_get_llm_provider_reads_settings() -> None:
+def test_get_llm_provider_reads_settings(monkeypatch: pytest.MonkeyPatch) -> None:
     """get_llm_provider returns None when coach_use_llm is False, and a provider when True.
 
     Hand-derived:
@@ -394,11 +458,18 @@ def test_get_llm_provider_reads_settings() -> None:
       Settings(coach_use_llm=True)  -> FakeProvider instance
     """
     from coglayer.api.deps import get_llm_provider
+    from coglayer.core.settings import get_settings
+
+    # Clear environment to avoid interference from .env file
+    monkeypatch.delenv("COGLAYER_GROQ_API_KEY", raising=False)
+    monkeypatch.delenv("COGLAYER_LLM_PROVIDER", raising=False)
+    get_settings.cache_clear()
 
     provider_disabled = get_llm_provider(Settings(coach_use_llm=False))
     assert provider_disabled is None
 
-    provider_enabled = get_llm_provider(Settings(coach_use_llm=True))
+    # Explicitly set llm_provider to "fake" to ensure FakeProvider is returned
+    provider_enabled = get_llm_provider(Settings(coach_use_llm=True, llm_provider="fake"))
     assert provider_enabled is not None
     assert isinstance(provider_enabled, FakeProvider)
 

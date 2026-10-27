@@ -27,6 +27,7 @@ import logging
 import re
 from typing import Final
 
+from coglayer.core.brain_twin import BrainTwinSignal, BrainTwinState
 from coglayer.core.models import CognitiveProfile, TaskResult
 from coglayer.core.protocols import LLMProvider, LLMRequest
 from coglayer.core.settings import Settings
@@ -62,6 +63,12 @@ _LLM_INSTRUCTION: Final[str] = (
     "You are a supportive cognitive coach. Use the following notes to write "
     "friendly, encouraging feedback for the user. Do not rank dimensions "
     "against each other and do not produce a global score. Keep it concise."
+)
+
+_BRAIN_TWIN_CONTEXT: Final[str] = (
+    "A recent comparable measurement differs from the user's usual reference. "
+    "This indicates a variation to review, but does not determine its cause. "
+    "The user can continue, take a pause, or repeat the activity."
 )
 
 
@@ -159,6 +166,8 @@ class CognitiveCoach:
         profile: CognitiveProfile,
         provider: LLMProvider | None = None,
         settings: Settings | None = None,
+        *,
+        brain_twin_signal: BrainTwinSignal | None = None,
     ) -> str:
         """Generate coaching feedback from the profile.
 
@@ -186,7 +195,7 @@ class CognitiveCoach:
         str
             Coaching feedback text including the disclaimer.
         """
-        local_text = self._build_local_text(profile)
+        local_text = self._build_local_text(profile, brain_twin_signal)
 
         if settings is not None and not settings.coach_use_llm:
             return local_text
@@ -221,7 +230,10 @@ class CognitiveCoach:
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _build_local_text(profile: CognitiveProfile) -> str:
+    def _build_local_text(
+        profile: CognitiveProfile,
+        brain_twin_signal: BrainTwinSignal | None = None,
+    ) -> str:
         """Build a human-readable summary from the profile dimensions.
 
         Includes per-dimension: percentage, two-sided credible interval,
@@ -233,6 +245,11 @@ class CognitiveCoach:
 
         if not profile.dimensions:
             lines.append("No assessment data available yet.")
+            if (
+                brain_twin_signal is not None
+                and brain_twin_signal.state is BrainTwinState.VARIATION_FLAGGED
+            ):
+                lines.append(f"\n{_BRAIN_TWIN_CONTEXT}")
             lines.append(f"\n{_DISCLAIMER}")
             return "\n".join(lines)
 
@@ -253,5 +270,11 @@ class CognitiveCoach:
             lines.append(f"    Observations: {n}")
             lines.append("")
 
+        if (
+            brain_twin_signal is not None
+            and brain_twin_signal.state is BrainTwinState.VARIATION_FLAGGED
+        ):
+            lines.append(_BRAIN_TWIN_CONTEXT)
+            lines.append("")
         lines.append(_DISCLAIMER)
         return "\n".join(lines)

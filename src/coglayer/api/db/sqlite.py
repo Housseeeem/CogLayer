@@ -19,14 +19,23 @@ import contextlib
 import json
 import sqlite3
 from collections.abc import Generator
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 
-from coglayer.core.exceptions import DuplicateSubmissionError
+from coglayer.core.exceptions import (
+    DuplicateIOIEventError,
+    DuplicateSubmissionError,
+    IOIOpportunityConflictError,
+    IOISessionOwnershipError,
+)
 from coglayer.core.models import (
+    AdaptiveDailyPlan,
+    CoachConversation,
+    CoachMessage,
     CognitiveProfile,
     ConsentRecord,
     DataQuality,
+    IOIObservation,
     Session,
     SessionStatus,
     Signal,
@@ -37,6 +46,9 @@ from coglayer.core.models import (
 __all__ = [
     "SQLiteAssessmentRepository",
     "SQLiteConsentRepository",
+    "SQLiteConversationRepository",
+    "SQLiteDailyPlanRepository",
+    "SQLiteIOIEventRepository",
     "SQLiteProfileRepository",
 ]
 
@@ -86,6 +98,23 @@ def _dt_to_str(dt: datetime) -> str:
 
 def _str_to_dt(s: str) -> datetime:
     return datetime.fromisoformat(s)
+
+
+def _event_from_row(row: sqlite3.Row) -> IOIObservation:
+    """Build an IOI observation from a SQLite row."""
+    return IOIObservation(
+        event_id=row["event_id"],
+        user_id=row["user_id"],
+        session_id=row["session_id"],
+        component=row["component"],
+        event_type=row["event_type"],
+        opportunity_id=row["opportunity_id"],
+        behavior_observed=bool(row["behavior_observed"]),
+        valid=bool(row["valid"]),
+        timestamp=_str_to_dt(row["timestamp_iso"]),
+        schema_version=row["schema_version"],
+        metadata=json.loads(row["metadata"]),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -366,6 +395,7 @@ class SQLiteAssessmentRepository:
         with _connect(self._db_path) as conn:
             # Sessions have FK cascade to trials/task_metrics/data_quality
             conn.execute("DELETE FROM sessions WHERE user_id = ?", (user_id,))
+            conn.execute("DELETE FROM daily_plans WHERE user_id = ?", (user_id,))
 
 
 # ---------------------------------------------------------------------------
@@ -447,3 +477,300 @@ class SQLiteConsentRepository:
         """Remove the consent record for the given user."""
         with _connect(self._db_path) as conn:
             conn.execute("DELETE FROM consent WHERE user_id = ?", (user_id,))
+
+
+class SQLiteIOIEventRepository:
+    """SQLite repository for structured IOI observations."""
+
+    def __init__(self, db_path: str) -> None:
+        self._db_path = db_path
+        _ensure_schema(db_path)
+
+    def save_event(self, event: IOIObservation) -> bool:
+        """Insert an event after checking session ownership and conflicts."""
+        with _connect(self._db_path) as conn:
+            session = conn.execute(
+                "SELECT user_id FROM sessions WHERE session_id = ?",
+                (event.session_id,),
+            ).fetchone()
+            if session is None or session["user_id"] != event.user_id:
+                raise IOISessionOwnershipError(event.user_id, event.session_id)
+
+            existing = conn.execute(
+                "SELECT * FROM collaboration_events WHERE event_id = ?",
+                (event.event_id,),
+            ).fetchone()
+            if existing is not None:
+                if _event_from_row(existing) == event:
+                    return False
+                raise DuplicateIOIEventError(event.event_id)
+
+            opportunity = conn.execute(
+                """
+                SELECT * FROM collaboration_events
+                WHERE user_id = ? AND component = ? AND opportunity_id = ?
+                """,
+                (event.user_id, event.component.value, event.opportunity_id),
+            ).fetchone()
+            if opportunity is not None:
+                raise IOIOpportunityConflictError(
+                    event.user_id,
+                    event.component.value,
+                    event.opportunity_id,
+                )
+
+            conn.execute(
+                """
+                INSERT INTO collaboration_events
+                    (event_id, user_id, session_id, component, event_type,
+                     opportunity_id, behavior_observed, valid, timestamp_iso,
+                     schema_version, metadata)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    event.event_id,
+                    event.user_id,
+                    event.session_id,
+                    event.component.value,
+                    event.event_type.value,
+                    event.opportunity_id,
+                    int(event.behavior_observed),
+                    int(event.valid),
+                    _dt_to_str(event.timestamp),
+                    event.schema_version,
+                    json.dumps(event.metadata, separators=(",", ":")),
+                ),
+            )
+        return True
+
+    def get_events(self, user_id: str, session_id: str | None = None) -> list[IOIObservation]:
+        """Return stored IOI events for a user in timestamp order."""
+        with _connect(self._db_path) as conn:
+            if session_id is None:
+                rows = conn.execute(
+                    """
+                    SELECT * FROM collaboration_events
+                    WHERE user_id = ? ORDER BY timestamp_iso, event_id
+                    """,
+                    (user_id,),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    """
+                    SELECT * FROM collaboration_events
+                    WHERE user_id = ? AND session_id = ?
+                    ORDER BY timestamp_iso, event_id
+                    """,
+                    (user_id, session_id),
+                ).fetchall()
+        return [_event_from_row(row) for row in rows]
+
+    def delete_user(self, user_id: str) -> None:
+        """Delete all IOI observations for a user."""
+        with _connect(self._db_path) as conn:
+            conn.execute("DELETE FROM collaboration_events WHERE user_id = ?", (user_id,))
+
+
+# ---------------------------------------------------------------------------
+# SQLiteDailyPlanRepository
+# ---------------------------------------------------------------------------
+
+
+class SQLiteDailyPlanRepository:
+    """DailyPlanRepository backed by SQLite."""
+
+    def __init__(self, db_path: str) -> None:
+        self._db_path = db_path
+        _ensure_schema(db_path)
+
+    def save_plan(self, plan: AdaptiveDailyPlan) -> None:
+        """Persist or update an adaptive daily plan."""
+        with _connect(self._db_path) as conn:
+            conn.execute(
+                """
+                INSERT INTO daily_plans
+                    (user_id, plan_date, session_id, plan_json, status, created_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(user_id, plan_date) DO UPDATE SET
+                    session_id = excluded.session_id,
+                    plan_json = excluded.plan_json,
+                    status = excluded.status
+                """,
+                (
+                    plan.user_id,
+                    plan.plan_date,
+                    plan.session_id,
+                    plan.model_dump_json(),
+                    plan.status,
+                    datetime.now(UTC).isoformat(),
+                ),
+            )
+
+    def get_plan(self, user_id: str, plan_date: str) -> AdaptiveDailyPlan | None:
+        """Retrieve the daily plan for a user on a given date, or None."""
+        with _connect(self._db_path) as conn:
+            row = conn.execute(
+                "SELECT plan_json FROM daily_plans WHERE user_id = ? AND plan_date = ?",
+                (user_id, plan_date),
+            ).fetchone()
+        if row is None:
+            return None
+        return AdaptiveDailyPlan.model_validate_json(row["plan_json"])
+
+    def get_plan_by_session(self, user_id: str, session_id: str) -> AdaptiveDailyPlan | None:
+        """Retrieve the daily plan linked to a session for a user, or None."""
+        with _connect(self._db_path) as conn:
+            row = conn.execute(
+                """
+                SELECT plan_json FROM daily_plans
+                WHERE user_id = ? AND session_id = ?
+                ORDER BY plan_date DESC
+                LIMIT 1
+                """,
+                (user_id, session_id),
+            ).fetchone()
+        if row is None:
+            return None
+        return AdaptiveDailyPlan.model_validate_json(row["plan_json"])
+
+    def update_plan_status(
+        self,
+        user_id: str,
+        plan_date: str,
+        status: str,
+        session_id: str | None = None,
+    ) -> None:
+        """Update lifecycle status and optional session ID of a daily plan."""
+        plan = self.get_plan(user_id, plan_date)
+        if plan is None:
+            return
+        target_session = session_id if session_id is not None else plan.session_id
+        if plan.status == status and plan.session_id == target_session:
+            return
+        updated_plan = plan.model_copy(
+            update={
+                "status": status,
+                "session_id": target_session,
+            }
+        )
+        self.save_plan(updated_plan)
+
+    def delete_user(self, user_id: str) -> None:
+        """Remove all daily plans for the given user."""
+        with _connect(self._db_path) as conn:
+            conn.execute("DELETE FROM daily_plans WHERE user_id = ?", (user_id,))
+
+
+# ---------------------------------------------------------------------------
+# SQLiteConversationRepository
+# ---------------------------------------------------------------------------
+
+
+class SQLiteConversationRepository:
+    """ConversationRepository backed by SQLite.
+
+    Parameters
+    ----------
+    db_path:
+        Path to the SQLite file, or ``":memory:"`` for in-memory use in tests.
+    """
+
+    def __init__(self, db_path: str) -> None:
+        self._db_path = db_path
+        _ensure_schema(db_path)
+
+    def save_conversation(self, conversation: CoachConversation) -> None:
+        """Persist a new conversation."""
+        with _connect(self._db_path) as conn:
+            conn.execute(
+                """
+                INSERT INTO coach_conversations
+                    (conversation_id, user_id, session_id, created_at)
+                VALUES (?, ?, ?, ?)
+                """,
+                (
+                    conversation.conversation_id,
+                    conversation.user_id,
+                    conversation.session_id,
+                    _dt_to_str(conversation.created_at),
+                ),
+            )
+
+    def get_conversation(self, conversation_id: str) -> CoachConversation | None:
+        """Retrieve a conversation by ID, or None if not found."""
+        with _connect(self._db_path) as conn:
+            row = conn.execute(
+                "SELECT * FROM coach_conversations WHERE conversation_id = ?",
+                (conversation_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        messages = self.get_messages(conversation_id)
+        return CoachConversation(
+            conversation_id=row["conversation_id"],
+            user_id=row["user_id"],
+            session_id=row["session_id"],
+            created_at=_str_to_dt(row["created_at"]),
+            messages=messages,
+        )
+
+    def get_conversations_by_user(self, user_id: str) -> list[CoachConversation]:
+        """Retrieve all conversations for a user, most recent first."""
+        with _connect(self._db_path) as conn:
+            rows = conn.execute(
+                "SELECT * FROM coach_conversations WHERE user_id = ? ORDER BY created_at DESC",
+                (user_id,),
+            ).fetchall()
+        return [
+            CoachConversation(
+                conversation_id=row["conversation_id"],
+                user_id=row["user_id"],
+                session_id=row["session_id"],
+                created_at=_str_to_dt(row["created_at"]),
+                messages=self.get_messages(row["conversation_id"]),
+            )
+            for row in rows
+        ]
+
+    def save_message(self, message: CoachMessage) -> None:
+        """Persist a new message."""
+        with _connect(self._db_path) as conn:
+            cursor = conn.execute(
+                """
+                INSERT INTO coach_messages
+                    (conversation_id, role, content, timestamp_iso)
+                VALUES (?, ?, ?, ?)
+                """,
+                (
+                    message.conversation_id,
+                    message.role.value,
+                    message.content,
+                    _dt_to_str(message.timestamp),
+                ),
+            )
+            # Set the message_id from the inserted row
+            message.message_id = cursor.lastrowid
+
+    def get_messages(self, conversation_id: str) -> list[CoachMessage]:
+        """Retrieve all messages for a conversation in chronological order."""
+        with _connect(self._db_path) as conn:
+            rows = conn.execute(
+                "SELECT * FROM coach_messages WHERE conversation_id = ? ORDER BY timestamp_iso ASC",
+                (conversation_id,),
+            ).fetchall()
+        return [
+            CoachMessage(
+                message_id=row["message_id"],
+                conversation_id=row["conversation_id"],
+                role=row["role"],
+                content=row["content"],
+                timestamp=_str_to_dt(row["timestamp_iso"]),
+            )
+            for row in rows
+        ]
+
+    def delete_user(self, user_id: str) -> None:
+        """Remove all conversations and messages for a user."""
+        with _connect(self._db_path) as conn:
+            # Conversations have FK cascade to messages
+            conn.execute("DELETE FROM coach_conversations WHERE user_id = ?", (user_id,))

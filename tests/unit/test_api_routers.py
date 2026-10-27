@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import pathlib
 
+import pytest
 from fastapi.testclient import TestClient
 
 from coglayer.api.app import create_app
@@ -25,6 +26,126 @@ def test_health_check(tmp_path: pathlib.Path) -> None:
     resp = client.get("/healthz")
     assert resp.status_code == 200
     assert resp.json()["status"] == "ok"
+
+
+def test_brain_twin_requires_consent_and_reports_insufficient_data(
+    tmp_path: pathlib.Path,
+) -> None:
+    """The baseline endpoint is consent-protected and honest about empty history."""
+    client = _client(tmp_path)
+    user_id = "brain-twin-user"
+
+    assert client.get(f"/v1/assessment/brain-twin/{user_id}").status_code == 403
+
+    client.post("/v1/assessment/consent", json={"user_id": user_id})
+    response = client.get(f"/v1/assessment/brain-twin/{user_id}")
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "INSUFFICIENT_DATA"
+    assert response.json()["points"] == []
+
+
+def test_brain_twin_endpoint_returns_expected_contract_with_history(
+    tmp_path: pathlib.Path,
+) -> None:
+    """The baseline endpoint returns full EMAResult contract when history is available."""
+    client = _client(tmp_path)
+    user_id = "brain-twin-history-user"
+    client.post("/v1/assessment/consent", json={"user_id": user_id})
+
+    # Submit 4 Go/No-Go results to meet minimum_observations threshold
+    for i in range(4):
+        s_id = client.post("/v1/assessment/sessions", json={"user_id": user_id}).json()[
+            "session_id"
+        ]
+        gng_trials = [
+            {
+                "stimulus": "go",
+                "expected": "press",
+                "response": "press",
+                "rt_ms": 200.0,
+                "timestamp": f"2024-01-15T10:0{i}:00+00:00",
+            },
+            {
+                "stimulus": "nogo",
+                "expected": "inhibit",
+                "response": None,
+                "rt_ms": 0.0,
+                "timestamp": f"2024-01-15T10:0{i}:01+00:00",
+            },
+        ]
+        client.post(
+            "/v1/assessment/tasks/go_no_go/submit",
+            json={"session_id": s_id, "user_id": user_id, "raw_result": {"trials": gng_trials}},
+        )
+
+    response = client.get(f"/v1/assessment/brain-twin/{user_id}")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["status"] == "AVAILABLE"
+    assert data["alpha"] == 0.3
+    assert data["sigma_multiplier"] == 1.5
+    assert len(data["points"]) == 4
+    for point in data["points"]:
+        assert "observation" in point
+        assert "prediction" in point
+        assert "residual" in point
+        assert "threshold" in point
+        assert "flagged" in point
+        assert isinstance(point["flagged"], bool)
+
+
+def test_coach_endpoint_derives_signal_from_persisted_evidence_not_client_input(
+    tmp_path: pathlib.Path,
+) -> None:
+    """Coach endpoint derives signal from DB evidence and ignores spoofed client fields."""
+    client = _client(tmp_path)
+    user_id = "coach-persisted-user"
+    client.post("/v1/assessment/consent", json={"user_id": user_id})
+    s_id = client.post("/v1/assessment/sessions", json={"user_id": user_id}).json()["session_id"]
+
+    # Complete both tasks so coach is unlocked
+    gng = [
+        {
+            "stimulus": "go",
+            "expected": "press",
+            "response": "press",
+            "rt_ms": 200.0,
+            "timestamp": "2024-01-15T10:00:00+00:00",
+        }
+    ]
+    span = [
+        {
+            "stimulus": "0,1",
+            "expected": "0,1",
+            "response": "0,1",
+            "rt_ms": 1000.0,
+            "timestamp": "2024-01-15T10:00:10+00:00",
+            "length": 2,
+        }
+    ]
+    client.post(
+        "/v1/assessment/tasks/go_no_go/submit",
+        json={"session_id": s_id, "user_id": user_id, "raw_result": {"trials": gng}},
+    )
+    client.post(
+        "/v1/assessment/tasks/sequence_span/submit",
+        json={"session_id": s_id, "user_id": user_id, "raw_result": {"sequences": span}},
+    )
+
+    # Attempt to spoof a VARIATION_FLAGGED signal via request payload
+    spoofed_payload = {
+        "user_id": user_id,
+        "brain_twin_signal": {
+            "state": "VARIATION_FLAGGED",
+            "comparable_observation_count": 10,
+        },
+    }
+    resp = client.post(f"/v1/assessment/coach/{user_id}", json=spoofed_payload)
+    assert resp.status_code == 200
+    # Because only 1 session was done, DB has INSUFFICIENT_DATA (count < 4),
+    # so variation text MUST NOT appear despite client trying to spoof it.
+    assert "differs from the user's usual reference" not in resp.text
 
 
 def test_get_db_settings_dependency() -> None:
@@ -102,11 +223,163 @@ def test_tasks_endpoints_and_errors(tmp_path: pathlib.Path) -> None:
     assert r_unknown.status_code == 400
 
     # Submit with invalid payload raising during score -> 422 Unprocessable Entity
-    r_bad = client.post(
+    bad_resp = client.post(
         "/v1/assessment/tasks/go_no_go/submit",
         json={"session_id": s_id, "user_id": user_id, "raw_result": {"trials": "not_a_list"}},
     )
-    assert r_bad.status_code == 422
+    assert bad_resp.status_code == 422
+    # Check that all new cognitive lab tasks are in the registered tasks list
+    for expected_task in (
+        "digit_span",
+        "stroop",
+        "corsi_blocks",
+        "n_back",
+        "letter_number_sequencing",
+        "perception_lab",
+    ):
+        assert expected_task in tasks
+
+
+def test_cognitive_lab_tasks_api_submit_and_listing(tmp_path: pathlib.Path) -> None:
+    """Submit results for all new cognitive lab tasks and verify metrics and profile update."""
+    client = _client(tmp_path)
+    user_id = "lab_test_user"
+    client.post("/v1/assessment/consent", json={"user_id": user_id})
+    s_id = client.post("/v1/assessment/sessions", json={"user_id": user_id}).json()["session_id"]
+
+    # 1. Digit Span
+    ds_resp = client.post(
+        "/v1/assessment/tasks/digit_span/submit",
+        json={
+            "session_id": s_id,
+            "user_id": user_id,
+            "raw_result": {
+                "trials": [
+                    {
+                        "stimulus": "1,2,3",
+                        "response": "123",
+                        "condition": "forward",
+                        "rt_ms": 1500.0,
+                    },
+                    {
+                        "stimulus": "4,5,6",
+                        "response": "654",
+                        "condition": "backward",
+                        "rt_ms": 1800.0,
+                    },
+                ]
+            },
+        },
+    )
+    assert ds_resp.status_code == 200
+    assert ds_resp.json()["metrics"]["digit_span_max"] == 3.0
+
+    # 2. Stroop
+    stroop_resp = client.post(
+        "/v1/assessment/tasks/stroop/submit",
+        json={
+            "session_id": s_id,
+            "user_id": user_id,
+            "raw_result": {
+                "trials": [
+                    {
+                        "stimulus": "RED",
+                        "expected": "RED",
+                        "response": "RED",
+                        "condition": "congruent",
+                        "rt_ms": 400.0,
+                    },
+                    {
+                        "stimulus": "BLUE",
+                        "expected": "GREEN",
+                        "response": "GREEN",
+                        "condition": "incongruent",
+                        "rt_ms": 650.0,
+                    },
+                ]
+            },
+        },
+    )
+    assert stroop_resp.status_code == 200
+    stroop_effect = stroop_resp.json()["metrics"]["stroop_effect_ms"]
+    assert stroop_effect == pytest.approx(250.0)
+
+    # 3. Corsi Blocks
+    corsi_resp = client.post(
+        "/v1/assessment/tasks/corsi_blocks/submit",
+        json={
+            "session_id": s_id,
+            "user_id": user_id,
+            "raw_result": {
+                "sequences": [
+                    {
+                        "stimulus": "1,2,3",
+                        "response": "1,2,3",
+                        "condition": "forward",
+                        "rt_ms": 2000.0,
+                    },
+                ]
+            },
+        },
+    )
+    assert corsi_resp.status_code == 200
+    assert corsi_resp.json()["metrics"]["corsi_span_max"] == 3.0
+
+    # 4. N-Back
+    nback_resp = client.post(
+        "/v1/assessment/tasks/n_back/submit",
+        json={
+            "session_id": s_id,
+            "user_id": user_id,
+            "raw_result": {
+                "trials": [
+                    {"stimulus": "A", "is_target": True, "response": "MATCH", "rt_ms": 450.0},
+                    {"stimulus": "B", "is_target": False, "response": "NO_MATCH", "rt_ms": 420.0},
+                ]
+            },
+        },
+    )
+    assert nback_resp.status_code == 200
+    assert nback_resp.json()["metrics"]["target_accuracy"] == 1.0
+
+    # 5. Letter-Number Sequencing
+    lns_resp = client.post(
+        "/v1/assessment/tasks/letter_number_sequencing/submit",
+        json={
+            "session_id": s_id,
+            "user_id": user_id,
+            "raw_result": {
+                "trials": [
+                    {"stimulus": "B 1", "response": "1 B", "rt_ms": 2000.0},
+                ]
+            },
+        },
+    )
+    assert lns_resp.status_code == 200
+    assert lns_resp.json()["metrics"]["lns_span_max"] == 2.0
+
+    # 6. Perception Lab
+    perc_resp = client.post(
+        "/v1/assessment/tasks/perception_lab/submit",
+        json={
+            "session_id": s_id,
+            "user_id": user_id,
+            "raw_result": {
+                "trials": [
+                    {"stimulus": "necker_cube", "response": "4", "rt_ms": 30000.0},
+                ]
+            },
+        },
+    )
+    assert perc_resp.status_code == 200
+    assert perc_resp.json()["metrics"]["switch_rate"] == 4.0
+
+    # Verify profile was updated and can be fetched
+    prof_resp = client.get(f"/v1/assessment/profile/{user_id}")
+    assert prof_resp.status_code == 200
+    profile_data = prof_resp.json()
+    assert "working_memory" in profile_data["dimensions"]
+    assert "cognitive_flexibility" in profile_data["dimensions"]
 
 
 def test_admin_delete_user(tmp_path: pathlib.Path) -> None:
@@ -175,6 +448,68 @@ def test_sessions_get_and_submit_guards(tmp_path: pathlib.Path) -> None:
         json={"session_id": "non-existent-session", "user_id": user_id, "raw_result": {}},
     )
     assert r_bad_sess.status_code == 403
+
+
+def test_get_session_rejects_wrong_requested_owner(tmp_path: pathlib.Path) -> None:
+    """A durable session ID cannot be used by another requested user."""
+    client = _client(tmp_path)
+    user_id = "session-owner"
+    client.post("/v1/assessment/consent", json={"user_id": user_id})
+    session_id = client.post(
+        "/v1/assessment/sessions",
+        json={"user_id": user_id},
+    ).json()["session_id"]
+
+    assert (
+        client.get(
+            f"/v1/assessment/sessions/{session_id}",
+            params={"user_id": user_id},
+        ).status_code
+        == 200
+    )
+    assert (
+        client.get(
+            f"/v1/assessment/sessions/{session_id}",
+            params={"user_id": "other-user"},
+        ).status_code
+        == 403
+    )
+
+
+def test_list_resumable_sessions_is_consent_and_owner_scoped(tmp_path: pathlib.Path) -> None:
+    """The session picker only exposes resumable sessions for the requested user."""
+    client = _client(tmp_path)
+    user_id = "session-picker-user"
+    client.post("/v1/assessment/consent", json={"user_id": user_id})
+    pending_id = client.post("/v1/assessment/sessions", json={"user_id": user_id}).json()[
+        "session_id"
+    ]
+    completed_id = client.post("/v1/assessment/sessions", json={"user_id": user_id}).json()[
+        "session_id"
+    ]
+    client.patch(
+        f"/v1/assessment/sessions/{completed_id}/status",
+        json={"status": "completed"},
+    )
+
+    response = client.get("/v1/assessment/sessions", params={"user_id": user_id})
+
+    assert response.status_code == 200
+    assert [item["session_id"] for item in response.json()] == [pending_id]
+    assert all(item["user_id"] == user_id for item in response.json())
+
+
+def test_list_sessions_rejects_user_without_consent(tmp_path: pathlib.Path) -> None:
+    """The session picker does not reveal sessions without active consent."""
+    client = _client(tmp_path)
+
+    assert (
+        client.get(
+            "/v1/assessment/sessions",
+            params={"user_id": "unconsented-session-picker-user"},
+        ).status_code
+        == 403
+    )
 
 
 def test_coach_fallback_when_profile_none(tmp_path: pathlib.Path) -> None:

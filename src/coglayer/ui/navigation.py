@@ -8,6 +8,12 @@ from dataclasses import dataclass
 TASK_PAGE_MAP: Mapping[str, str] = {
     "go_no_go": "go_no_go",
     "sequence_span": "sequence_span",
+    "digit_span": "digit_span",
+    "stroop": "stroop",
+    "corsi_blocks": "corsi_blocks",
+    "n_back": "n_back",
+    "letter_number_sequencing": "letter_number_sequencing",
+    "perception_lab": "perception_lab",
 }
 
 

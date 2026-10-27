@@ -22,7 +22,10 @@ from coglayer.ui.dashboard import (
     create_radar_chart,
     select_overview_chart,
 )
-from coglayer.ui.pages.dashboard import render_dashboard_page
+from coglayer.ui.page_views.dashboard import (
+    render_dashboard_page,
+    render_profile_dashboard_page,
+)
 
 
 def test_build_radar_rows_fixed_order() -> None:
@@ -318,8 +321,8 @@ def test_progress_curve_and_history_data() -> None:
     assert hist_rows[3]["session_id"] == "sess_1" and hist_rows[3]["task_id"] == "go_no_go"
 
 
-@patch("coglayer.ui.pages.dashboard.httpx.get")
-@patch("coglayer.ui.pages.dashboard.st")
+@patch("coglayer.ui.page_views.dashboard.httpx.get")
+@patch("coglayer.ui.page_views.dashboard.st")
 def test_render_dashboard_page_empty_state(mock_st: MagicMock, mock_get: MagicMock) -> None:
     """Dashboard displays friendly empty state when user has no completed sessions.
 
@@ -348,8 +351,8 @@ def test_render_dashboard_page_empty_state(mock_st: MagicMock, mock_get: MagicMo
     assert disclaimer_found
 
 
-@patch("coglayer.ui.pages.dashboard.httpx.get")
-@patch("coglayer.ui.pages.dashboard.st")
+@patch("coglayer.ui.page_views.dashboard.httpx.get")
+@patch("coglayer.ui.page_views.dashboard.st")
 def test_render_dashboard_page_api_error(mock_st: MagicMock, mock_get: MagicMock) -> None:
     """Dashboard handles API connection error gracefully with readable error and no stack trace.
 
@@ -367,8 +370,8 @@ def test_render_dashboard_page_api_error(mock_st: MagicMock, mock_get: MagicMock
     assert "Traceback" not in error_msg
 
 
-@patch("coglayer.ui.pages.dashboard.httpx.get")
-@patch("coglayer.ui.pages.dashboard.st")
+@patch("coglayer.ui.page_views.dashboard.httpx.get")
+@patch("coglayer.ui.page_views.dashboard.st")
 def test_render_dashboard_page_single_session(mock_st: MagicMock, mock_get: MagicMock) -> None:
     """Dashboard with 1 session renders radar and progress curve with note on trends.
 
@@ -426,8 +429,8 @@ def test_render_dashboard_page_single_session(mock_st: MagicMock, mock_get: Magi
     assert trend_note_found
 
 
-@patch("coglayer.ui.pages.dashboard.httpx.get")
-@patch("coglayer.ui.pages.dashboard.st")
+@patch("coglayer.ui.page_views.dashboard.httpx.get")
+@patch("coglayer.ui.page_views.dashboard.st")
 def test_render_dashboard_page_multi_session_and_non_clinical(
     mock_st: MagicMock, mock_get: MagicMock
 ) -> None:
@@ -601,8 +604,8 @@ def test_chart_selection_and_interval_chart() -> None:
     assert chart_3 is not None
 
 
-@patch("coglayer.ui.pages.dashboard.httpx.get")
-@patch("coglayer.ui.pages.dashboard.st")
+@patch("coglayer.ui.page_views.dashboard.httpx.get")
+@patch("coglayer.ui.page_views.dashboard.st")
 def test_render_dashboard_page_fewer_than_three_dimensions_caption(
     mock_st: MagicMock, mock_get: MagicMock
 ) -> None:
@@ -685,3 +688,28 @@ def test_progress_curve_chart_spec() -> None:
     assert "session_index" in tooltip_fields
     assert "dimension" in tooltip_fields
     assert "outcome" in tooltip_fields
+
+
+@patch("coglayer.ui.page_views.dashboard.render_dashboard_page")
+@patch("coglayer.ui.page_views.dashboard.render_profile_page")
+@patch("coglayer.ui.page_views.dashboard.st")
+def test_merged_profile_dashboard_reuses_existing_renderers(
+    mock_st: MagicMock,
+    mock_render_profile: MagicMock,
+    mock_render_dashboard: MagicMock,
+) -> None:
+    """The merged page keeps one header and reuses profile plus dashboard renderers."""
+    render_profile_dashboard_page("http://testserver", "user_1")
+
+    mock_st.header.assert_called_once_with("Cognitive Profile & Dashboard")
+    mock_render_profile.assert_called_once_with(
+        "http://testserver",
+        "user_1",
+        heading=False,
+    )
+    mock_render_dashboard.assert_called_once_with(
+        "http://testserver",
+        "user_1",
+        heading=False,
+        show_empty_cta=False,
+    )

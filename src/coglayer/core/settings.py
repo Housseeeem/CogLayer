@@ -42,6 +42,9 @@ class Settings(BaseSettings):
     forgetting_factor: float = 0.98
     llm_provider: str = "fake"
     coach_use_llm: bool = False
+    groq_api_key: str | None = None
+    groq_model: str = "llama-3.3-70b-versatile"
+    store_conversations: bool = False
     # Quality gate: minimum Go accuracy required for go_no_go to update the profile.
     # This threshold is a design choice with no source: at least 11 correct Go out of 15 (0.7).
     go_no_go_min_go_accuracy: float = 0.7
@@ -55,14 +58,18 @@ class Settings(BaseSettings):
 
 
 @functools.lru_cache(maxsize=1)
-def get_settings() -> Settings:
+def get_settings(_env_file: str | None = ".env") -> Settings:
     """Return the application :class:`Settings`, constructing it at most once.
 
     The result is cached with :func:`functools.lru_cache` so repeated calls
     within a process share a single ``Settings`` instance.  To force a fresh
     read (e.g. in tests), call ``get_settings.cache_clear()`` first.
 
+    Args:
+        _env_file: Path to the .env file to load, or None to skip loading.
+            Tests can pass None to test default values without .env interference.
+
     Returns:
         The singleton :class:`Settings` instance.
     """
-    return Settings()
+    return Settings(_env_file=_env_file)
