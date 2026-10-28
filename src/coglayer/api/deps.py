@@ -13,13 +13,22 @@ from fastapi import Depends
 from coglayer.api.db.sqlite import (
     SQLiteAssessmentRepository,
     SQLiteConsentRepository,
+    SQLiteConversationRepository,
+    SQLiteDailyPlanRepository,
+    SQLiteIOIEventRepository,
     SQLiteProfileRepository,
 )
 from coglayer.coach.coach import CognitiveCoach
+from coglayer.coach.conversation import ConversationService
 from coglayer.coach.decision import AdaptiveDecisionEngine
+from coglayer.coach.selector import AdaptiveGameSelector
+from coglayer.core.ioi import IOIScoringService
 from coglayer.core.protocols import (
     AssessmentRepository,
     ConsentRepository,
+    ConversationRepository,
+    DailyPlanRepository,
+    IOIEventRepository,
     LLMProvider,
     ProfileRepository,
     ScoringAdapter,
@@ -29,6 +38,7 @@ from coglayer.core.settings import Settings, get_settings
 from coglayer.privacy.consent import ConsentService
 from coglayer.profile.service import ProfileService
 from coglayer.providers.fake import FakeProvider
+from coglayer.providers.groq import GroqProvider
 from coglayer.signals.go_no_go import GoNoGoScorer
 from coglayer.signals.registry import build_default_registry
 from coglayer.signals.sequence_span import SequenceSpanScorer
@@ -38,8 +48,14 @@ __all__ = [
     "get_coach",
     "get_consent_repo",
     "get_consent_service",
+    "get_conversation_repo",
+    "get_conversation_service",
+    "get_daily_plan_repo",
+    "get_daily_selector",
     "get_db_settings",
     "get_decision_engine",
+    "get_ioi_event_repo",
+    "get_ioi_scoring_service",
     "get_llm_provider",
     "get_profile_repo",
     "get_profile_service",
@@ -51,6 +67,18 @@ __all__ = [
 def get_db_settings() -> Settings:
     """Return runtime application settings."""
     return get_settings()
+
+
+def get_daily_plan_repo(
+    settings: Annotated[Settings, Depends(get_db_settings)],
+) -> DailyPlanRepository:
+    """Return a DailyPlanRepository backed by SQLite."""
+    return SQLiteDailyPlanRepository(settings.db_path)
+
+
+def get_daily_selector() -> AdaptiveGameSelector:
+    """Return the deterministic adaptive game selector."""
+    return AdaptiveGameSelector()
 
 
 def get_assessment_repo(
@@ -81,6 +109,18 @@ def get_consent_service(
     return ConsentService(repo)
 
 
+def get_ioi_event_repo(
+    settings: Annotated[Settings, Depends(get_db_settings)],
+) -> IOIEventRepository:
+    """Return the SQLite repository for structured IOI observations."""
+    return SQLiteIOIEventRepository(settings.db_path)
+
+
+def get_ioi_scoring_service() -> IOIScoringService:
+    """Return the pure IOI scoring service."""
+    return IOIScoringService()
+
+
 def get_task_registry() -> TaskRegistry:
     """Return the default pre-populated TaskRegistry."""
     return build_default_registry()
@@ -107,7 +147,14 @@ def get_llm_provider(
     """Return the configured LLMProvider or None when coach_use_llm is False."""
     if not settings.coach_use_llm:
         return None
-    # For MVP / tests, returns FakeProvider(seed=42)
+    if settings.llm_provider == "groq":
+        if not settings.groq_api_key:
+            return None
+        return GroqProvider(
+            api_key=settings.groq_api_key,
+            model=settings.groq_model,
+        )
+    # Default to FakeProvider for tests and offline demos
     return FakeProvider(seed=42)
 
 
@@ -120,6 +167,28 @@ def get_profile_service(
         lambda_=settings.forgetting_factor,
         registry=registry,
     )
+
+
+def get_conversation_repo(
+    settings: Annotated[Settings, Depends(get_db_settings)],
+) -> ConversationRepository:
+    """Return a ConversationRepository backed by SQLite."""
+    return SQLiteConversationRepository(settings.db_path)
+
+
+# Module-level singleton for ConversationService to preserve memory cache across requests
+_conversation_service_singleton: ConversationService | None = None
+
+
+def get_conversation_service(
+    conversation_repo: Annotated[ConversationRepository, Depends(get_conversation_repo)],
+    coach: Annotated[CognitiveCoach, Depends(get_coach)],
+) -> ConversationService:
+    """Return the ConversationService wired to repository and coach (singleton)."""
+    global _conversation_service_singleton
+    if _conversation_service_singleton is None:
+        _conversation_service_singleton = ConversationService(conversation_repo, coach)
+    return _conversation_service_singleton
 
 
 def get_scoring_adapters(

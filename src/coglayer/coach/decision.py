@@ -69,7 +69,10 @@ class AdaptiveDecisionEngine:
         reg = registry or self._registry
         if reg is None:
             return list(DEFAULT_TASK_DESCRIPTORS)
-        return list(reg.list_descriptors())
+        descriptors = list(reg.list_descriptors())
+        protocol_ids = {d.task_id for d in DEFAULT_TASK_DESCRIPTORS}
+        protocol_descriptors = [d for d in descriptors if d.task_id in protocol_ids]
+        return protocol_descriptors if protocol_descriptors else descriptors
 
     def _dimension_uncertainty(
         self,

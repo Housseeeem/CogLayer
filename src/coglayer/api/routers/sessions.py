@@ -16,7 +16,7 @@ import uuid
 from datetime import UTC, datetime
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel
 
 from coglayer.api.deps import (
@@ -75,10 +75,30 @@ def create_session(
     return session
 
 
+@router.get("/sessions", response_model=list[Session])
+def list_sessions(
+    user_id: Annotated[str, Query(min_length=1)],
+    consent_service: Annotated[ConsentService, Depends(get_consent_service)],
+    assessment_repo: Annotated[AssessmentRepository, Depends(get_assessment_repo)],
+) -> list[Session]:
+    """List pending and in-progress sessions owned by a consented user."""
+    if not consent_service.has_consented(user_id):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="User has not given active consent.",
+        )
+    return [
+        session
+        for session in assessment_repo.get_sessions_by_user(user_id)
+        if session.status in (SessionStatus.PENDING, SessionStatus.IN_PROGRESS)
+    ]
+
+
 @router.get("/sessions/{session_id}", response_model=Session)
 def get_session(
     session_id: str,
     assessment_repo: Annotated[AssessmentRepository, Depends(get_assessment_repo)],
+    user_id: Annotated[str | None, Query()] = None,
 ) -> Session:
     """Retrieve session details by session_id."""
     session = assessment_repo.get_session(session_id)
@@ -86,6 +106,11 @@ def get_session(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Session {session_id} not found.",
+        )
+    if user_id is not None and session.user_id != user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Session is not owned by this user.",
         )
     return session
 

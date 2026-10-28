@@ -11,7 +11,17 @@ from __future__ import annotations
 from fastapi import APIRouter, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from coglayer.api.routers import admin, coach, consent, profile, sessions, tasks
+from coglayer.api.routers import (
+    admin,
+    brain_twin,
+    coach,
+    consent,
+    daily_plan,
+    ioi,
+    profile,
+    sessions,
+    tasks,
+)
 from coglayer.core.settings import Settings, get_settings
 
 
@@ -51,6 +61,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     assessment_router.include_router(profile.router)
     assessment_router.include_router(coach.router)
     assessment_router.include_router(admin.router)
+    assessment_router.include_router(ioi.router)
+    assessment_router.include_router(brain_twin.router)
+    assessment_router.include_router(daily_plan.router)
 
     app.include_router(assessment_router)
 

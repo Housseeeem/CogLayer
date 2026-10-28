@@ -40,11 +40,15 @@ def render_sequence_span_page(api_url: str, user_id: str, session_id: str) -> No
             if "sequence_span" in session_data.get("completed_tasks", []):
                 st.success("✅ Sequence Span task is completed for this session.")
                 if st.button("Proceed to Cognitive Profile", type="primary"):
-                    st.session_state["page"] = "profile"
+                    st.session_state["page"] = "next"
                     st.rerun()
                 return
     except Exception as e:
         st.warning(f"Could not reach API to check session status: {e}")
+
+    decision_reason = st.session_state.get("decision_reason")
+    if isinstance(decision_reason, str):
+        st.info(decision_reason)
 
     # Self-contained HTML/JS sequence span runner
     html_code = f"""
@@ -307,7 +311,7 @@ def render_sequence_span_page(api_url: str, user_id: str, session_id: str) -> No
                 if check_resp.status_code == 200:
                     session_info = check_resp.json()
                     if "sequence_span" in session_info.get("completed_tasks", []):
-                        st.session_state["page"] = "profile"
+                        st.session_state["page"] = "next"
                         st.rerun()
                     else:
                         st.info(

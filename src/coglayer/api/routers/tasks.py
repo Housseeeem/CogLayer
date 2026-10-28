@@ -19,15 +19,17 @@ from pydantic import BaseModel
 from coglayer.api.deps import (
     get_assessment_repo,
     get_consent_service,
+    get_daily_plan_repo,
     get_profile_repo,
     get_profile_service,
     get_scoring_adapters,
     get_task_registry,
 )
 from coglayer.core.exceptions import DuplicateSubmissionError
-from coglayer.core.models import CognitiveProfile, TaskDescriptor, TaskResult
+from coglayer.core.models import CognitiveProfile, Session, TaskDescriptor, TaskResult
 from coglayer.core.protocols import (
     AssessmentRepository,
+    DailyPlanRepository,
     ProfileRepository,
     ScoringAdapter,
     TaskRegistry,
@@ -81,6 +83,7 @@ def submit_task_result(
     profile_service: Annotated[ProfileService, Depends(get_profile_service)],
     scorers: Annotated[dict[str, ScoringAdapter], Depends(get_scoring_adapters)],
     registry: Annotated[TaskRegistry, Depends(get_task_registry)],
+    daily_plan_repo: Annotated[DailyPlanRepository, Depends(get_daily_plan_repo)],
 ) -> TaskResult:
     """Submit raw task result, score it, persist result and update profile.
 
@@ -173,9 +176,98 @@ def submit_task_result(
                 )
             raise exc
 
-    # 9. Append task_id to session.completed_tasks and persist
-    if task_id not in session.completed_tasks:
+    # 9. Append task_id to session.completed_tasks and persist (only if sufficient for completion)
+    if (
+        task_id not in session.completed_tasks
+        and result.data_quality.is_sufficient_for_completion()
+    ):
         session.completed_tasks.append(task_id)
         assessment_repo.save_session(session)
 
+    # 10. Auto-update daily plan status if this session is linked to one
+    _update_daily_plan_after_completion(
+        daily_plan_repo=daily_plan_repo,
+        assessment_repo=assessment_repo,
+        session=session,
+        user_id=body.user_id,
+        task_id=task_id,
+    )
+
     return result
+
+
+def _update_daily_plan_after_completion(
+    daily_plan_repo: DailyPlanRepository,
+    assessment_repo: AssessmentRepository,
+    session: Session,
+    user_id: str,
+    task_id: str,
+) -> None:
+    """Check if the daily plan should transition after a task completion.
+
+    Finds the plan linked to this session, or an unlinked plan for the session date
+    if the completed task belongs to the plan's recommendations.
+    Transitions status based on persisted valid task results in the session.
+    """
+    if session.user_id != user_id:
+        return
+
+    # 1. Try finding a plan already linked to this session
+    plan = daily_plan_repo.get_plan_by_session(user_id, session.session_id)
+
+    # 2. If no plan linked, check if an unlinked plan exists for the session's date
+    if plan is None:
+        session_date = session.start_time.strftime("%Y-%m-%d")
+        candidate = daily_plan_repo.get_plan(user_id, session_date)
+        if (
+            candidate is not None
+            and candidate.session_id is None
+            and candidate.status in ("generated", "started")
+        ):
+            recommended_ids = {rec.task_id for rec in candidate.recommendations}
+            # Only associate if the submitted task belongs to the plan's recommendations
+            if task_id in recommended_ids:
+                daily_plan_repo.update_plan_status(
+                    user_id=user_id,
+                    plan_date=candidate.plan_date,
+                    status="started",
+                    session_id=session.session_id,
+                )
+                plan = candidate.model_copy(
+                    update={"session_id": session.session_id, "status": "started"}
+                )
+
+    if plan is None or plan.status == "completed":
+        return
+    if plan.session_id != session.session_id:
+        return
+
+    required_ids = {rec.task_id for rec in plan.recommendations}
+    if not required_ids:
+        return
+
+    # Check verified persisted results in the exact session
+    results = assessment_repo.get_results(session.session_id)
+    verified_ids = {
+        res.task_id
+        for res in results
+        if res.task_id in required_ids
+        and res.session_id == session.session_id
+        and res.user_id == user_id
+        and res.data_quality.is_sufficient_for_completion()
+    }
+
+    if required_ids.issubset(verified_ids):
+        daily_plan_repo.update_plan_status(
+            user_id=user_id,
+            plan_date=plan.plan_date,
+            status="completed",
+            session_id=session.session_id,
+        )
+    elif plan.status == "generated" and (required_ids & verified_ids):
+        daily_plan_repo.update_plan_status(
+            user_id=user_id,
+            plan_date=plan.plan_date,
+            status="started",
+            session_id=session.session_id,
+        )

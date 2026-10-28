@@ -19,8 +19,12 @@ from typing import Protocol, runtime_checkable
 from pydantic import BaseModel
 
 from .models import (
+    AdaptiveDailyPlan,
+    CoachConversation,
+    CoachMessage,
     CognitiveProfile,
     ConsentRecord,
+    IOIObservation,
     RawTaskResult,
     Session,
     SessionStatus,
@@ -31,6 +35,9 @@ from .models import (
 __all__ = [
     "AssessmentRepository",
     "ConsentRepository",
+    "ConversationRepository",
+    "DailyPlanRepository",
+    "IOIEventRepository",
     "LLMProvider",
     "LLMRequest",
     "LLMResponse",
@@ -260,7 +267,55 @@ class ConsentRepository(Protocol):  # pragma: no cover
         ...
 
     def delete_consent(self, user_id: str) -> None:
-        """Remove the consent record for the given user (R-001.2)."""
+        """Remove the consent record for a user (R-001.2)."""
+        ...
+
+
+@runtime_checkable
+class IOIEventRepository(Protocol):  # pragma: no cover
+    """Persistence contract for explicitly recorded IOI observations."""
+
+    def save_event(self, event: IOIObservation) -> bool:
+        """Insert an event, returning False for an identical retry."""
+        ...
+
+    def get_events(self, user_id: str, session_id: str | None = None) -> list[IOIObservation]:
+        """Return a user's IOI events, optionally limited to one session."""
+        ...
+
+    def delete_user(self, user_id: str) -> None:
+        """Delete all IOI events owned by a user."""
+        ...
+
+
+@runtime_checkable
+class DailyPlanRepository(Protocol):  # pragma: no cover
+    """Persistence contract for adaptive daily cognitive game plans."""
+
+    def save_plan(self, plan: AdaptiveDailyPlan) -> None:
+        """Persist or update an adaptive daily plan."""
+        ...
+
+    def get_plan(self, user_id: str, plan_date: str) -> AdaptiveDailyPlan | None:
+        """Retrieve the daily plan for a user on a given date, or None."""
+        ...
+
+    def get_plan_by_session(self, user_id: str, session_id: str) -> AdaptiveDailyPlan | None:
+        """Retrieve the daily plan linked to a session for a user, or None."""
+        ...
+
+    def update_plan_status(
+        self,
+        user_id: str,
+        plan_date: str,
+        status: str,
+        session_id: str | None = None,
+    ) -> None:
+        """Update lifecycle status and optional session ID of a daily plan."""
+        ...
+
+    def delete_user(self, user_id: str) -> None:
+        """Remove all daily plans for the given user."""
         ...
 
 
@@ -289,4 +344,33 @@ class LLMProvider(Protocol):  # pragma: no cover
         Returns:
             The model's text response.
         """
+        ...
+
+
+@runtime_checkable
+class ConversationRepository(Protocol):  # pragma: no cover
+    """Persistence contract for coaching conversations."""
+
+    def save_conversation(self, conversation: CoachConversation) -> None:
+        """Persist a new conversation."""
+        ...
+
+    def get_conversation(self, conversation_id: str) -> CoachConversation | None:
+        """Retrieve a conversation by ID, or None if not found."""
+        ...
+
+    def get_conversations_by_user(self, user_id: str) -> list[CoachConversation]:
+        """Retrieve all conversations for a user, most recent first."""
+        ...
+
+    def save_message(self, message: CoachMessage) -> None:
+        """Persist a new message."""
+        ...
+
+    def get_messages(self, conversation_id: str) -> list[CoachMessage]:
+        """Retrieve all messages for a conversation in chronological order."""
+        ...
+
+    def delete_user(self, user_id: str) -> None:
+        """Remove all conversations and messages for a user."""
         ...

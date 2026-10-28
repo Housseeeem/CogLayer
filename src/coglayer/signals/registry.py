@@ -17,7 +17,16 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from coglayer.core.models import TaskDescriptor
-from coglayer.core.tasks import GO_NO_GO_DESCRIPTOR, SEQUENCE_SPAN_DESCRIPTOR
+from coglayer.core.tasks import (
+    CORSI_BLOCKS_DESCRIPTOR,
+    DIGIT_SPAN_DESCRIPTOR,
+    GO_NO_GO_DESCRIPTOR,
+    LETTER_NUMBER_DESCRIPTOR,
+    N_BACK_DESCRIPTOR,
+    PERCEPTION_DESCRIPTOR,
+    SEQUENCE_SPAN_DESCRIPTOR,
+    STROOP_DESCRIPTOR,
+)
 
 if TYPE_CHECKING:
     from coglayer.core.protocols import ScoringAdapter
@@ -146,19 +155,28 @@ def build_default_registry() -> InMemoryTaskRegistry:
     """Return a pre-populated ``InMemoryTaskRegistry`` with the built-in tasks.
 
     Built-in tasks:
-    - **Go/No-Go** (``task_id="go_no_go"``, ``version="1.0"``) — measures
-      response inhibition via a go/no-go paradigm.
-    - **Sequence Span** (``task_id="sequence_span"``, ``version="1.0"``) —
-      measures sequential visual memory via spatial sequence reproduction
-      (proxy for working-memory capacity; does not purely measure working memory).
+    - **Go/No-Go** (``task_id="go_no_go"``)
+    - **Sequence Span** (``task_id="sequence_span"``)
+    - **Digit Span** (``task_id="digit_span"``)
+    - **Stroop** (``task_id="stroop"``)
+    - **Corsi Blocks** (``task_id="corsi_blocks"``)
+    - **N-Back** (``task_id="n_back"``)
+    - **Letter-Number Sequencing** (``task_id="letter_number_sequencing"``)
+    - **Perception Lab** (``task_id="perception_lab"``)
 
     Returns:
         A ready-to-use ``InMemoryTaskRegistry`` instance.
 
     Requirements: R-002.1, R-002.5
     """
+    from coglayer.signals.corsi_blocks import CorsiBlocksScorer
+    from coglayer.signals.digit_span import DigitSpanScorer
     from coglayer.signals.go_no_go import GoNoGoScorer
+    from coglayer.signals.letter_number import LetterNumberSequencingScorer
+    from coglayer.signals.n_back import NBackScorer
+    from coglayer.signals.perception import PerceptionScorer
     from coglayer.signals.sequence_span import SequenceSpanScorer
+    from coglayer.signals.stroop import StroopScorer
 
     registry = InMemoryTaskRegistry()
     registry.register(
@@ -168,5 +186,29 @@ def build_default_registry() -> InMemoryTaskRegistry:
     registry.register(
         SEQUENCE_SPAN_DESCRIPTOR,
         scorer=SequenceSpanScorer(descriptor=SEQUENCE_SPAN_DESCRIPTOR),
+    )
+    registry.register(
+        DIGIT_SPAN_DESCRIPTOR,
+        scorer=DigitSpanScorer(descriptor=DIGIT_SPAN_DESCRIPTOR),
+    )
+    registry.register(
+        STROOP_DESCRIPTOR,
+        scorer=StroopScorer(descriptor=STROOP_DESCRIPTOR),
+    )
+    registry.register(
+        CORSI_BLOCKS_DESCRIPTOR,
+        scorer=CorsiBlocksScorer(descriptor=CORSI_BLOCKS_DESCRIPTOR),
+    )
+    registry.register(
+        N_BACK_DESCRIPTOR,
+        scorer=NBackScorer(descriptor=N_BACK_DESCRIPTOR),
+    )
+    registry.register(
+        LETTER_NUMBER_DESCRIPTOR,
+        scorer=LetterNumberSequencingScorer(descriptor=LETTER_NUMBER_DESCRIPTOR),
+    )
+    registry.register(
+        PERCEPTION_DESCRIPTOR,
+        scorer=PerceptionScorer(descriptor=PERCEPTION_DESCRIPTOR),
     )
     return registry

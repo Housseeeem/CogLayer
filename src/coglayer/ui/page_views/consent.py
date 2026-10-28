@@ -1,7 +1,7 @@
 """Consent page for CogLayer UI.
 
 Displays informed consent screen and non-clinical disclaimer.
-Advances to go_no_go upon user agreement.
+Advances to the Cognitive Lab upon user agreement.
 
 Requirements: R-001.1, R-001.4, R-010.2
 """
@@ -27,7 +27,8 @@ def render_consent_page(api_url: str, user_id: str) -> None:
             if has_consented:
                 st.success(f"User '{user_id}' has already granted consent.")
                 if st.button("Continue to Assessment", type="primary"):
-                    st.session_state["page"] = "go_no_go"
+                    st.session_state["page"] = "lab"
+                    st.session_state["pending_page_selector"] = "lab"
                     st.rerun()
                 return
     except Exception as exc:
@@ -63,7 +64,8 @@ def render_consent_page(api_url: str, user_id: str) -> None:
                     timeout=5.0,
                 )
                 if post_resp.status_code in (200, 201):
-                    st.session_state["page"] = "go_no_go"
+                    st.session_state["page"] = "lab"
+                    st.session_state["pending_page_selector"] = "lab"
                     st.rerun()
                 else:
                     st.error(f"Failed to record consent: {post_resp.text}")

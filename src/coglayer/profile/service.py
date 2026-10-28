@@ -42,7 +42,7 @@ from coglayer.core.models import (
     TaskResult,
 )
 from coglayer.core.protocols import TaskRegistry
-from coglayer.core.tasks import DEFAULT_TASK_DESCRIPTORS
+from coglayer.core.tasks import ALL_TASK_DESCRIPTORS
 from coglayer.profile.model import DEFAULT_FORGETTING_FACTOR, BetaProfileModel
 
 __all__ = [
@@ -94,9 +94,9 @@ def derive_dimension_mapping(
     return derive_dimension_mapping_from_descriptors(descriptors)
 
 
-# Derived from DEFAULT_TASK_DESCRIPTORS (no duplicated literals)
+# Derived from ALL_TASK_DESCRIPTORS (no duplicated literals)
 DIMENSION_MAPPING: Final[dict[str, list[DimMapping]]] = derive_dimension_mapping_from_descriptors(
-    DEFAULT_TASK_DESCRIPTORS
+    ALL_TASK_DESCRIPTORS
 )
 
 

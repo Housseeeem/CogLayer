@@ -138,6 +138,15 @@ sequenceDiagram
     UI->>API: GET /v1/assessment/profile/{user_id}
     API-->>UI: Return Credible Intervals & Data Quality
 
+    User->>UI: Submit explicit IOI opportunity outcome
+    UI->>API: POST /v1/assessment/ioi/events
+    API->>DB: Save structured collaboration event
+
+    User->>UI: View experimental interaction index
+    UI->>API: GET /v1/assessment/ioi/{user_id}/score
+    API->>DB: Load explicit collaboration events
+    API-->>UI: Return component evidence and fixed-weight score
+
     User->>UI: Request Coaching Feedback
     UI->>API: POST /v1/assessment/coach/{user_id}
     API->>LLM: Complete Neutral Coaching Prompt
@@ -167,6 +176,23 @@ Data persistence is managed via SQLite in `src/coglayer/api/db/`:
 - **`task_metrics`**: Stores aggregated metrics per task execution (`session_id`, `task_id`, `metrics_json`).
 - **`data_quality`**: Tracks validity and completeness indicators (`session_id`, `task_id`, `completeness`, `valid_trials`, `total_trials`).
 - **`profiles`**: Stores serialized JSON blobs of `CognitiveProfile` keyed by `user_id`.
+- **`collaboration_events`**: Stores only structured, explicitly submitted IOI
+  opportunity outcomes. It does not store prompts, model responses, or
+  conversation text. Events are scoped to an owned session and deduplicated by
+  event ID and user/component/opportunity ID.
+
+### Experimental IOI flow
+
+The IOI prototype is separate from cognitive assessment evidence. The
+Streamlit interaction-index page presents one explicit opportunity per
+component and records an observation only after the user submits a structured
+choice. The API verifies active consent and session ownership before storing
+the event. The score endpoint recomputes the snapshot from stored events; it
+returns `INSUFFICIENT_EVIDENCE` until all five components have at least three
+valid observations. The fixed weights and threshold are experimental product
+rules, not a scientifically validated measure of intelligence or general AI
+skill. The current application has no authentication layer beyond its local
+demo user/session identity model.
 
 ### Storage Swappability
 All database interactions are defined through abstract protocols in `src/coglayer/core/protocols.py`:
@@ -248,7 +274,7 @@ The system follows the Open-Closed Principle: adding a new task requires **zero 
    )
    ```
 4. **Add UI Component**:
-   Create `src/coglayer/ui/pages/new_task.py` and mount it in `src/coglayer/ui/app.py`.
+   Create `src/coglayer/ui/page_views/new_task.py` and mount it in `src/coglayer/ui/app.py`.
 
 ---
 

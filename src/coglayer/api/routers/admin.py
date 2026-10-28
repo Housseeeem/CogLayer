@@ -15,11 +15,13 @@ from fastapi import APIRouter, Depends, status
 from coglayer.api.deps import (
     get_assessment_repo,
     get_consent_repo,
+    get_conversation_repo,
     get_profile_repo,
 )
 from coglayer.core.protocols import (
     AssessmentRepository,
     ConsentRepository,
+    ConversationRepository,
     ProfileRepository,
 )
 
@@ -32,10 +34,12 @@ def delete_user_data(
     assessment_repo: Annotated[AssessmentRepository, Depends(get_assessment_repo)],
     profile_repo: Annotated[ProfileRepository, Depends(get_profile_repo)],
     consent_repo: Annotated[ConsentRepository, Depends(get_consent_repo)],
+    conversation_repo: Annotated[ConversationRepository, Depends(get_conversation_repo)],
 ) -> None:
-    """Delete all assessment sessions, trials, metrics, profiles, and consent
-    records for the specified user (R-001.2).
+    """Delete all assessment sessions, trials, metrics, profiles, consent,
+    and conversation records for the specified user (R-001.2).
     """
     assessment_repo.delete_user(user_id)
     profile_repo.delete_user(user_id)
     consent_repo.delete_consent(user_id)
+    conversation_repo.delete_user(user_id)

@@ -25,9 +25,10 @@ def format_uncertainty_interval(lower: float, upper: float) -> str:
     return f"{lower_pct}% - {upper_pct}%"
 
 
-def render_profile_page(api_url: str, user_id: str) -> None:
-    """Render the cognitive profile dashboard."""
-    st.header("Cognitive Profile")
+def render_profile_page(api_url: str, user_id: str, *, heading: bool = True) -> None:
+    """Render Bayesian profile estimates and data-quality captions."""
+    if heading:
+        st.header("Cognitive Profile")
 
     try:
         resp = httpx.get(f"{api_url}/v1/assessment/profile/{user_id}", timeout=5.0)
@@ -43,7 +44,8 @@ def render_profile_page(api_url: str, user_id: str) -> None:
     if not dimensions:
         st.info("No assessment evidence has been collected for this user yet.")
         if st.button("Start First Task"):
-            st.session_state["page"] = "go_no_go"
+            st.session_state["page"] = "lab"
+            st.session_state["pending_page_selector"] = "lab"
             st.rerun()
         return
 

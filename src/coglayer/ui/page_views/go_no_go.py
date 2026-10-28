@@ -35,11 +35,15 @@ def render_go_no_go_page(api_url: str, user_id: str, session_id: str) -> None:
             if "go_no_go" in session_data.get("completed_tasks", []):
                 st.success("✅ Go/No-Go task is completed for this session.")
                 if st.button("Proceed to Task 2: Sequence Span", type="primary"):
-                    st.session_state["page"] = "sequence_span"
+                    st.session_state["page"] = "next"
                     st.rerun()
                 return
     except Exception as e:
         st.warning(f"Could not reach API to check session status: {e}")
+
+    decision_reason = st.session_state.get("decision_reason")
+    if isinstance(decision_reason, str):
+        st.info(decision_reason)
 
     # Self-contained HTML/JS task runner
     html_code = f"""
@@ -276,7 +280,7 @@ def render_go_no_go_page(api_url: str, user_id: str, session_id: str) -> None:
                 if check_resp.status_code == 200:
                     session_info = check_resp.json()
                     if "go_no_go" in session_info.get("completed_tasks", []):
-                        st.session_state["page"] = "sequence_span"
+                        st.session_state["page"] = "next"
                         st.rerun()
                     else:
                         st.info(
