@@ -607,11 +607,15 @@ def test_onboarding_page_requires_age_group(mock_st: MagicMock) -> None:
     mock_st.error.assert_called()
 
 
+@patch("coglayer.ui.page_views.onboarding.components.html")
 @patch("coglayer.ui.page_views.onboarding.httpx.post")
 @patch("coglayer.ui.page_views.onboarding.httpx.put")
 @patch("coglayer.ui.page_views.onboarding.st")
 def test_onboarding_step6_saves_profile_at_entry(
-    mock_st: MagicMock, mock_put: MagicMock, mock_post: MagicMock
+    mock_st: MagicMock,
+    mock_put: MagicMock,
+    mock_post: MagicMock,
+    mock_html: MagicMock,
 ) -> None:
     """Step 6 saves onboarding profile via PUT before running calibration."""
     onboarding_data = {
@@ -641,6 +645,81 @@ def test_onboarding_step6_saves_profile_at_entry(
         json=onboarding_data,
         timeout=5.0,
     )
+    mock_post.assert_called_once_with(
+        "http://testserver/v1/assessment/sessions",
+        json={"user_id": "user_1", "session_type": "calibration"},
+        timeout=5.0,
+    )
+    assert mock_html.called
+
+
+@patch("coglayer.ui.page_views.onboarding.components.html")
+@patch("coglayer.ui.page_views.onboarding.httpx.post")
+@patch("coglayer.ui.page_views.onboarding.httpx.put")
+@patch("coglayer.ui.page_views.onboarding.st")
+def test_onboarding_step6_adult_can_skip_calibration(
+    mock_st: MagicMock,
+    mock_put: MagicMock,
+    mock_post: MagicMock,
+    mock_html: MagicMock,
+) -> None:
+    """Adult can skip calibration and receives default 'some' guidance level."""
+    onboarding_data = {
+        "age_group": "adult_31_60",
+        "goals": ["Maintain sharpness"],
+        "tech_comfort": "comfortable",
+        "info_style": "detailed",
+        "layout": "dashboard",
+        "theme": "standard",
+    }
+    session_store: dict[str, object] = {
+        "onboarding_step": 6,
+        "onboarding_data": onboarding_data,
+        "step6_profile_saved": True,
+        "calibration_session_id": "cal_sess_1",
+    }
+    mock_st.session_state = session_store
+    mock_st.columns.return_value = [MagicMock(), MagicMock(), MagicMock()]
+    # When skip button is clicked
+    mock_st.button.side_effect = lambda label, **kwargs: label.startswith("Skip Calibration")
+    mock_put.return_value = MagicMock(status_code=200, json=lambda: {})
+
+    render_onboarding_page("http://testserver", "user_1")
+
+    assert session_store.get("calibration_completed") is True
+    out_data = session_store.get("onboarding_data")
+    assert isinstance(out_data, dict)
+    assert out_data.get("guidance_level") == "some"
+
+
+@patch("coglayer.ui.page_views.onboarding.st")
+def test_onboarding_step6_completed_displays_non_clinical_language(
+    mock_st: MagicMock,
+) -> None:
+    """When calibration is completed, guidance level is displayed in non-clinical language."""
+    session_store: dict[str, object] = {
+        "onboarding_step": 6,
+        "onboarding_data": {
+            "age_group": "child_7_12",
+            "goals": ["Improve focus"],
+            "guidance_level": "more",
+        },
+        "step6_profile_saved": True,
+        "calibration_session_id": "cal_sess_1",
+        "calibration_completed": True,
+    }
+    mock_st.session_state = session_store
+    mock_st.columns.return_value = [MagicMock(), MagicMock(), MagicMock()]
+    mock_st.button.return_value = False
+
+    render_onboarding_page("http://testserver", "user_1")
+
+    mock_st.success.assert_called()
+    success_msg = mock_st.success.call_args[0][0]
+    assert "Supported Guidance" in success_msg
+    # Ensure no clinical forbidden words in display
+    for forbidden in ["diagnosis", "disorder", "deficit", "impairment", "iq", "patient"]:
+        assert forbidden not in success_msg.lower()
 
 
 @patch("coglayer.ui.page_views.consent.httpx.get")
