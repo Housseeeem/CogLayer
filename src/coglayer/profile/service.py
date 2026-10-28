@@ -134,6 +134,7 @@ class ProfileService:
         self,
         profile: CognitiveProfile,
         result: TaskResult,
+        session_type: str = "assessment",
     ) -> CognitiveProfile:
         """Return an updated profile incorporating evidence from *result*.
 
@@ -142,19 +143,29 @@ class ProfileService:
         ignored.  If count == 0 for a dimension, that dimension is skipped
         (no forgetting, no Evidence record, no n_evidence increment).
 
+        Calibration sessions (session_type="calibration") are skipped and
+        the profile is returned unchanged to isolate calibration from the
+        Bayesian cognitive profile.
+
         Parameters
         ----------
         profile :
             Current profile (treated as read-only; a new profile is returned).
         result :
             Scored task result.  Only ``result.metrics`` is read.
+        session_type :
+            Type of session ("assessment" or "calibration"). Calibration sessions
+            are skipped to prevent Bayesian profile updates.
 
         Returns
         -------
         CognitiveProfile
             Updated profile with new dimensions, evidence_history,
-            data_quality dict, and uncertainty dict.
+            data_quality dict, and uncertainty dict. Unchanged for calibration.
         """
+        # Skip Bayesian update for calibration sessions
+        if session_type == "calibration":
+            return profile
         mappings: list[DimMapping] = []
         if self._registry is not None:
             desc: TaskDescriptor | None = None

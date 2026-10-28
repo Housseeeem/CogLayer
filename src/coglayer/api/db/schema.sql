@@ -34,6 +34,8 @@ CREATE TABLE IF NOT EXISTS sessions (
     end_time        TEXT,              -- NULL while session is open
     status          TEXT    NOT NULL
         CHECK(status IN ('pending','in_progress','completed','interrupted')),
+    session_type    TEXT    NOT NULL DEFAULT 'assessment'
+        CHECK(session_type IN ('assessment','calibration')),
     completed_tasks TEXT    NOT NULL DEFAULT '[]'  -- JSON array of task_id strings
 );
 

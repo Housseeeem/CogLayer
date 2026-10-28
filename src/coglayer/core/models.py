@@ -184,6 +184,13 @@ class SessionStatus(StrEnum):
     INTERRUPTED = "interrupted"
 
 
+class SessionType(StrEnum):
+    """Type of session (assessment vs calibration)."""
+
+    ASSESSMENT = "assessment"
+    CALIBRATION = "calibration"
+
+
 class Session(BaseModel):
     """A single assessment session for a user."""
 
@@ -192,6 +199,7 @@ class Session(BaseModel):
     start_time: datetime
     end_time: datetime | None
     status: SessionStatus
+    session_type: SessionType = SessionType.ASSESSMENT
     completed_tasks: list[str]  # task_ids completed in this session
 
 

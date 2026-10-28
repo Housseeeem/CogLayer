@@ -149,7 +149,13 @@ def submit_task_result(
                 data_quality={},
                 uncertainty={},
             )
-        updated_profile = profile_service.update_from_result(existing_profile, result)
+        # Get session type to skip Bayesian update for calibration sessions
+        session_type = (
+            session.session_type.value if hasattr(session, "session_type") else "assessment"
+        )
+        updated_profile = profile_service.update_from_result(
+            existing_profile, result, session_type=session_type
+        )
 
     # 7. Save result to assessment repository (duplicate check)
     try:

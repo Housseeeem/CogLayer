@@ -39,6 +39,7 @@ from coglayer.core.models import (
     IOIObservation,
     Session,
     SessionStatus,
+    SessionType,
     Signal,
     TaskResult,
     Trial,
@@ -147,13 +148,15 @@ class SQLiteAssessmentRepository:
             conn.execute(
                 """
                 INSERT INTO sessions
-                    (session_id, user_id, start_time, end_time, status, completed_tasks)
-                VALUES (?, ?, ?, ?, ?, ?)
+                    (session_id, user_id, start_time, end_time, status,
+                     session_type, completed_tasks)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(session_id) DO UPDATE SET
                     user_id = excluded.user_id,
                     start_time = excluded.start_time,
                     end_time = excluded.end_time,
                     status = excluded.status,
+                    session_type = excluded.session_type,
                     completed_tasks = excluded.completed_tasks
                 """,
                 (
@@ -162,6 +165,7 @@ class SQLiteAssessmentRepository:
                     _dt_to_str(session.start_time),
                     _dt_to_str(session.end_time) if session.end_time else None,
                     session.status.value,
+                    session.session_type.value,
                     json.dumps(session.completed_tasks),
                 ),
             )
@@ -174,12 +178,16 @@ class SQLiteAssessmentRepository:
             ).fetchone()
         if row is None:
             return None
+        session_type = (
+            SessionType(row["session_type"]) if row.get("session_type") else SessionType.ASSESSMENT
+        )
         return Session(
             session_id=row["session_id"],
             user_id=row["user_id"],
             start_time=_str_to_dt(row["start_time"]),
             end_time=_str_to_dt(row["end_time"]) if row["end_time"] else None,
             status=SessionStatus(row["status"]),
+            session_type=session_type,
             completed_tasks=json.loads(row["completed_tasks"]),
         )
 
@@ -197,6 +205,9 @@ class SQLiteAssessmentRepository:
                 start_time=_str_to_dt(row["start_time"]),
                 end_time=_str_to_dt(row["end_time"]) if row["end_time"] else None,
                 status=SessionStatus(row["status"]),
+                session_type=SessionType(row["session_type"])
+                if row.get("session_type")
+                else SessionType.ASSESSMENT,
                 completed_tasks=json.loads(row["completed_tasks"]),
             )
             for row in rows
