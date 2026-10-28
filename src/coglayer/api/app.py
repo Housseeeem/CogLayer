@@ -18,6 +18,7 @@ from coglayer.api.routers import (
     consent,
     daily_plan,
     ioi,
+    onboarding,
     profile,
     sessions,
     tasks,
@@ -64,6 +65,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     assessment_router.include_router(ioi.router)
     assessment_router.include_router(brain_twin.router)
     assessment_router.include_router(daily_plan.router)
+    assessment_router.include_router(onboarding.router)
 
     app.include_router(assessment_router)
 
