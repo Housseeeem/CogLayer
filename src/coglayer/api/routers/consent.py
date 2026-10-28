@@ -26,6 +26,8 @@ class ConsentRequest(BaseModel):
     """Payload to record consent."""
 
     user_id: str
+    guardian_consent: bool = False
+    guardian_id: str | None = None
 
 
 class ConsentStatusResponse(BaseModel):
@@ -40,7 +42,11 @@ def record_consent(
     consent_service: Annotated[ConsentService, Depends(get_consent_service)],
 ) -> ConsentRecord:
     """Record consent for a user."""
-    return consent_service.record_consent(body.user_id)
+    return consent_service.record_consent(
+        body.user_id,
+        guardian_consent=body.guardian_consent,
+        guardian_id=body.guardian_id,
+    )
 
 
 @router.delete("/consent/{user_id}", status_code=status.HTTP_204_NO_CONTENT)

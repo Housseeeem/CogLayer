@@ -15,6 +15,7 @@ from coglayer.api.db.sqlite import (
     SQLiteConsentRepository,
     SQLiteConversationRepository,
     SQLiteDailyPlanRepository,
+    SQLiteExperienceProfileRepository,
     SQLiteIOIEventRepository,
     SQLiteProfileRepository,
 )
@@ -28,6 +29,7 @@ from coglayer.core.protocols import (
     ConsentRepository,
     ConversationRepository,
     DailyPlanRepository,
+    ExperienceProfileRepository,
     IOIEventRepository,
     LLMProvider,
     ProfileRepository,
@@ -54,6 +56,7 @@ __all__ = [
     "get_daily_selector",
     "get_db_settings",
     "get_decision_engine",
+    "get_experience_profile_repo",
     "get_ioi_event_repo",
     "get_ioi_scoring_service",
     "get_llm_provider",
@@ -74,6 +77,13 @@ def get_daily_plan_repo(
 ) -> DailyPlanRepository:
     """Return a DailyPlanRepository backed by SQLite."""
     return SQLiteDailyPlanRepository(settings.db_path)
+
+
+def get_experience_profile_repo(
+    settings: Annotated[Settings, Depends(get_db_settings)],
+) -> ExperienceProfileRepository:
+    """Return an ExperienceProfileRepository backed by SQLite."""
+    return SQLiteExperienceProfileRepository(settings.db_path)
 
 
 def get_daily_selector() -> AdaptiveGameSelector:

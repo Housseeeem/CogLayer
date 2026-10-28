@@ -17,9 +17,11 @@
 -- Consent (R-001.1, R-001.4)
 -- -------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS consent (
-    user_id      TEXT    NOT NULL PRIMARY KEY,
-    consented_at TEXT    NOT NULL,  -- ISO-8601 with timezone
-    revoked_at   TEXT              -- NULL means currently consented
+    user_id          TEXT    NOT NULL PRIMARY KEY,
+    consented_at     TEXT    NOT NULL,  -- ISO-8601 with timezone
+    revoked_at       TEXT,              -- NULL means currently consented
+    guardian_consent INTEGER NOT NULL DEFAULT 0,  -- 0 or 1
+    guardian_id      TEXT                -- Optional guardian identifier
 );
 
 -- -------------------------------------------------------------------------
@@ -92,6 +94,22 @@ CREATE TABLE IF NOT EXISTS data_quality (
 CREATE TABLE IF NOT EXISTS profiles (
     user_id      TEXT NOT NULL PRIMARY KEY,
     profile_json TEXT NOT NULL  -- CognitiveProfile serialised as JSON
+);
+
+-- -------------------------------------------------------------------------
+-- Experience profiles — personalized onboarding data
+-- -------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS experience_profiles (
+    user_id         TEXT    NOT NULL PRIMARY KEY,
+    age_group       TEXT    NOT NULL CHECK(age_group IN ('child_7_12','teen_13_17','young_adult_18_30','adult_31_60','senior_60_plus')),
+    goals           TEXT    NOT NULL,  -- JSON array of strings
+    tech_comfort    TEXT    NOT NULL CHECK(tech_comfort IN ('new','some_experience','comfortable','very_comfortable')),
+    info_style      TEXT    NOT NULL CHECK(info_style IN ('visual','step_by_step','short_simple','detailed','conversational')),
+    layout          TEXT    NOT NULL CHECK(layout IN ('guided_journey','dashboard','conversation_first','minimal')),
+    theme           TEXT    NOT NULL CHECK(theme IN ('larger_text','standard','high_contrast','softer_colors','brighter_colors')),
+    guidance_level  TEXT,              -- NULL allowed; CHECK(guidance_level IN ('more','some','minimal')) when present
+    created_at      TEXT    NOT NULL,  -- ISO-8601 with timezone
+    updated_at      TEXT    NOT NULL   -- ISO-8601 with timezone
 );
 
 -- -------------------------------------------------------------------------

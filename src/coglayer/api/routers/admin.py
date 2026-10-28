@@ -16,12 +16,14 @@ from coglayer.api.deps import (
     get_assessment_repo,
     get_consent_repo,
     get_conversation_repo,
+    get_experience_profile_repo,
     get_profile_repo,
 )
 from coglayer.core.protocols import (
     AssessmentRepository,
     ConsentRepository,
     ConversationRepository,
+    ExperienceProfileRepository,
     ProfileRepository,
 )
 
@@ -35,11 +37,15 @@ def delete_user_data(
     profile_repo: Annotated[ProfileRepository, Depends(get_profile_repo)],
     consent_repo: Annotated[ConsentRepository, Depends(get_consent_repo)],
     conversation_repo: Annotated[ConversationRepository, Depends(get_conversation_repo)],
+    experience_profile_repo: Annotated[
+        ExperienceProfileRepository, Depends(get_experience_profile_repo)
+    ],
 ) -> None:
     """Delete all assessment sessions, trials, metrics, profiles, consent,
-    and conversation records for the specified user (R-001.2).
+    conversation records, and experience profiles for the specified user (R-001.2).
     """
     assessment_repo.delete_user(user_id)
     profile_repo.delete_user(user_id)
     consent_repo.delete_consent(user_id)
     conversation_repo.delete_user(user_id)
+    experience_profile_repo.delete_user(user_id)

@@ -59,6 +59,8 @@ def test_has_consented_after_record() -> None:
     assert svc.has_consented("alice") is True
     assert record.user_id == "alice"
     assert record.revoked_at is None
+    assert record.guardian_consent is False
+    assert record.guardian_id is None
 
 
 def test_has_not_consented_after_revoke() -> None:
@@ -77,6 +79,8 @@ def test_record_consent_returns_timezone_aware_datetime() -> None:
     record = svc.record_consent("bob")
     assert record.consented_at.tzinfo is not None
     assert record.consented_at.utcoffset() == datetime.timedelta(0)
+    assert record.guardian_consent is False
+    assert record.guardian_id is None
 
 
 def test_revoke_idempotent_when_no_record() -> None:
