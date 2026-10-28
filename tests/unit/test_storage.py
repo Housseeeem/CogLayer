@@ -322,19 +322,39 @@ def test_profile_delete_user(tmp_path: pathlib.Path) -> None:
 
 def test_consent_round_trip(tmp_path: pathlib.Path) -> None:
     repo = SQLiteConsentRepository(str(tmp_path / "test.db"))
-    record = ConsentRecord(user_id="alice", consented_at=TIMESTAMP, revoked_at=None)
+    record = ConsentRecord(
+        user_id="alice",
+        consented_at=TIMESTAMP,
+        revoked_at=None,
+        guardian_consent=False,
+        guardian_id=None,
+    )
     repo.save_consent(record)
     loaded = repo.get_consent("alice")
     assert loaded is not None
     assert loaded.user_id == "alice"
     assert loaded.revoked_at is None
+    assert loaded.guardian_consent is False
+    assert loaded.guardian_id is None
 
 
 def test_consent_revoke_persists(tmp_path: pathlib.Path) -> None:
     repo = SQLiteConsentRepository(str(tmp_path / "test.db"))
-    record = ConsentRecord(user_id="bob", consented_at=TIMESTAMP, revoked_at=None)
+    record = ConsentRecord(
+        user_id="bob",
+        consented_at=TIMESTAMP,
+        revoked_at=None,
+        guardian_consent=False,
+        guardian_id=None,
+    )
     repo.save_consent(record)
-    revoked = ConsentRecord(user_id="bob", consented_at=TIMESTAMP, revoked_at=TIMESTAMP)
+    revoked = ConsentRecord(
+        user_id="bob",
+        consented_at=TIMESTAMP,
+        revoked_at=TIMESTAMP,
+        guardian_consent=False,
+        guardian_id=None,
+    )
     repo.save_consent(revoked)
     loaded = repo.get_consent("bob")
     assert loaded is not None
@@ -343,7 +363,13 @@ def test_consent_revoke_persists(tmp_path: pathlib.Path) -> None:
 
 def test_consent_delete_user(tmp_path: pathlib.Path) -> None:
     repo = SQLiteConsentRepository(str(tmp_path / "test.db"))
-    record = ConsentRecord(user_id="alice", consented_at=TIMESTAMP, revoked_at=None)
+    record = ConsentRecord(
+        user_id="alice",
+        consented_at=TIMESTAMP,
+        revoked_at=None,
+        guardian_consent=False,
+        guardian_id=None,
+    )
     repo.save_consent(record)
     repo.delete_consent("alice")
     assert repo.get_consent("alice") is None

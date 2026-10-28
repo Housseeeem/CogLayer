@@ -35,9 +35,11 @@ from coglayer.core.models import (
     CognitiveProfile,
     ConsentRecord,
     DataQuality,
+    ExperienceProfile,
     IOIObservation,
     Session,
     SessionStatus,
+    SessionType,
     Signal,
     TaskResult,
     Trial,
@@ -48,6 +50,7 @@ __all__ = [
     "SQLiteConsentRepository",
     "SQLiteConversationRepository",
     "SQLiteDailyPlanRepository",
+    "SQLiteExperienceProfileRepository",
     "SQLiteIOIEventRepository",
     "SQLiteProfileRepository",
 ]
@@ -145,13 +148,15 @@ class SQLiteAssessmentRepository:
             conn.execute(
                 """
                 INSERT INTO sessions
-                    (session_id, user_id, start_time, end_time, status, completed_tasks)
-                VALUES (?, ?, ?, ?, ?, ?)
+                    (session_id, user_id, start_time, end_time, status,
+                     session_type, completed_tasks)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(session_id) DO UPDATE SET
                     user_id = excluded.user_id,
                     start_time = excluded.start_time,
                     end_time = excluded.end_time,
                     status = excluded.status,
+                    session_type = excluded.session_type,
                     completed_tasks = excluded.completed_tasks
                 """,
                 (
@@ -160,6 +165,7 @@ class SQLiteAssessmentRepository:
                     _dt_to_str(session.start_time),
                     _dt_to_str(session.end_time) if session.end_time else None,
                     session.status.value,
+                    session.session_type.value,
                     json.dumps(session.completed_tasks),
                 ),
             )
@@ -172,12 +178,18 @@ class SQLiteAssessmentRepository:
             ).fetchone()
         if row is None:
             return None
+        session_type = (
+            SessionType(row["session_type"])
+            if "session_type" in row.keys()
+            else SessionType.ASSESSMENT
+        )
         return Session(
             session_id=row["session_id"],
             user_id=row["user_id"],
             start_time=_str_to_dt(row["start_time"]),
             end_time=_str_to_dt(row["end_time"]) if row["end_time"] else None,
             status=SessionStatus(row["status"]),
+            session_type=session_type,
             completed_tasks=json.loads(row["completed_tasks"]),
         )
 
@@ -195,6 +207,9 @@ class SQLiteAssessmentRepository:
                 start_time=_str_to_dt(row["start_time"]),
                 end_time=_str_to_dt(row["end_time"]) if row["end_time"] else None,
                 status=SessionStatus(row["status"]),
+                session_type=SessionType(row["session_type"])
+                if "session_type" in row.keys()
+                else SessionType.ASSESSMENT,
                 completed_tasks=json.loads(row["completed_tasks"]),
             )
             for row in rows
@@ -451,13 +466,16 @@ class SQLiteConsentRepository:
         with _connect(self._db_path) as conn:
             conn.execute(
                 """
-                INSERT OR REPLACE INTO consent (user_id, consented_at, revoked_at)
-                VALUES (?, ?, ?)
+                INSERT OR REPLACE INTO consent
+                    (user_id, consented_at, revoked_at, guardian_consent, guardian_id)
+                VALUES (?, ?, ?, ?, ?)
                 """,
                 (
                     record.user_id,
                     _dt_to_str(record.consented_at),
                     _dt_to_str(record.revoked_at) if record.revoked_at else None,
+                    1 if record.guardian_consent else 0,
+                    record.guardian_id,
                 ),
             )
 
@@ -471,6 +489,8 @@ class SQLiteConsentRepository:
             user_id=row["user_id"],
             consented_at=_str_to_dt(row["consented_at"]),
             revoked_at=_str_to_dt(row["revoked_at"]) if row["revoked_at"] else None,
+            guardian_consent=bool(row["guardian_consent"]),
+            guardian_id=row["guardian_id"],
         )
 
     def delete_consent(self, user_id: str) -> None:
@@ -774,3 +794,66 @@ class SQLiteConversationRepository:
         with _connect(self._db_path) as conn:
             # Conversations have FK cascade to messages
             conn.execute("DELETE FROM coach_conversations WHERE user_id = ?", (user_id,))
+
+
+# ---------------------------------------------------------------------------
+# SQLiteExperienceProfileRepository
+# ---------------------------------------------------------------------------
+
+
+class SQLiteExperienceProfileRepository:
+    """ExperienceProfileRepository backed by SQLite."""
+
+    def __init__(self, db_path: str) -> None:
+        self._db_path = db_path
+        _ensure_schema(db_path)
+
+    def save_profile(self, profile: ExperienceProfile) -> None:
+        """Persist (create or replace) an ExperienceProfile."""
+        with _connect(self._db_path) as conn:
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO experience_profiles
+                    (user_id, age_group, goals, tech_comfort, info_style,
+                     layout, theme, guidance_level, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    profile.user_id,
+                    profile.age_group.value,
+                    json.dumps(profile.goals),
+                    profile.tech_comfort.value,
+                    profile.info_style.value,
+                    profile.layout.value,
+                    profile.theme.value,
+                    profile.guidance_level.value if profile.guidance_level else None,
+                    _dt_to_str(profile.created_at),
+                    _dt_to_str(profile.updated_at),
+                ),
+            )
+
+    def get_profile(self, user_id: str) -> ExperienceProfile | None:
+        """Return the experience profile for a user, or None if not found."""
+        with _connect(self._db_path) as conn:
+            row = conn.execute(
+                "SELECT * FROM experience_profiles WHERE user_id = ?", (user_id,)
+            ).fetchone()
+        if row is None:
+            return None
+        return ExperienceProfile(
+            user_id=row["user_id"],
+            age_group=row["age_group"],
+            goals=json.loads(row["goals"]),
+            tech_comfort=row["tech_comfort"],
+            info_style=row["info_style"],
+            layout=row["layout"],
+            theme=row["theme"],
+            guidance_level=row["guidance_level"],
+            created_at=_str_to_dt(row["created_at"]),
+            updated_at=_str_to_dt(row["updated_at"]),
+        )
+
+    def delete_user(self, user_id: str) -> None:
+        """Remove the experience profile for the given user."""
+        with _connect(self._db_path) as conn:
+            conn.execute("DELETE FROM experience_profiles WHERE user_id = ?", (user_id,))

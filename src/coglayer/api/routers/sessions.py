@@ -27,7 +27,7 @@ from coglayer.api.deps import (
     get_profile_repo,
 )
 from coglayer.coach.decision import AdaptiveDecisionEngine
-from coglayer.core.models import EngineDecision, Session, SessionStatus, TaskResult
+from coglayer.core.models import EngineDecision, Session, SessionStatus, SessionType, TaskResult
 from coglayer.core.protocols import AssessmentRepository, ProfileRepository
 from coglayer.core.settings import Settings
 from coglayer.privacy.consent import ConsentService
@@ -39,6 +39,7 @@ class SessionCreateRequest(BaseModel):
     """Payload to create a new assessment session."""
 
     user_id: str
+    session_type: SessionType = SessionType.ASSESSMENT
 
 
 class SessionStatusUpdateRequest(BaseModel):
@@ -69,6 +70,7 @@ def create_session(
         start_time=datetime.now(UTC),
         end_time=None,
         status=SessionStatus.PENDING,
+        session_type=body.session_type,
         completed_tasks=[],
     )
     assessment_repo.save_session(session)

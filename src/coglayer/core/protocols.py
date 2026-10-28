@@ -24,6 +24,7 @@ from .models import (
     CoachMessage,
     CognitiveProfile,
     ConsentRecord,
+    ExperienceProfile,
     IOIObservation,
     RawTaskResult,
     Session,
@@ -37,6 +38,7 @@ __all__ = [
     "ConsentRepository",
     "ConversationRepository",
     "DailyPlanRepository",
+    "ExperienceProfileRepository",
     "IOIEventRepository",
     "LLMProvider",
     "LLMRequest",
@@ -373,4 +375,21 @@ class ConversationRepository(Protocol):  # pragma: no cover
 
     def delete_user(self, user_id: str) -> None:
         """Remove all conversations and messages for a user."""
+        ...
+
+
+@runtime_checkable
+class ExperienceProfileRepository(Protocol):  # pragma: no cover
+    """Persistence contract for user experience profiles."""
+
+    def save_profile(self, profile: ExperienceProfile) -> None:
+        """Persist (create or replace) an ExperienceProfile."""
+        ...
+
+    def get_profile(self, user_id: str) -> ExperienceProfile | None:
+        """Retrieve the experience profile for a user, or None if not found."""
+        ...
+
+    def delete_user(self, user_id: str) -> None:
+        """Remove the experience profile for the given user."""
         ...

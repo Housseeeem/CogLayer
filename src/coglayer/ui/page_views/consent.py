@@ -1,7 +1,8 @@
 """Consent page for CogLayer UI.
 
 Displays informed consent screen and non-clinical disclaimer.
-Advances to the Cognitive Lab upon user agreement.
+For minors (child/teen), requires guardian consent before proceeding.
+Advances to onboarding upon consent.
 
 Requirements: R-001.1, R-001.4, R-010.2
 """
@@ -13,7 +14,7 @@ import streamlit as st
 
 
 def render_consent_page(api_url: str, user_id: str) -> None:
-    """Render the user consent screen."""
+    """Render the user consent screen with guardian consent for minors."""
     st.header("Informed Consent & Privacy")
 
     # Check if user has already consented
@@ -26,13 +27,38 @@ def render_consent_page(api_url: str, user_id: str) -> None:
             )
             if has_consented:
                 st.success(f"User '{user_id}' has already granted consent.")
-                if st.button("Continue to Assessment", type="primary"):
-                    st.session_state["page"] = "lab"
-                    st.session_state["pending_page_selector"] = "lab"
-                    st.rerun()
+                _check_experience_profile_and_redirect(api_url, user_id)
                 return
     except Exception as exc:
         st.warning(f"Could not connect to API to verify consent status: {exc}")
+
+    # Age group selection for guardian consent
+    st.write("**Step 1: Select Age Group**")
+    age_group = st.radio(
+        "Which age group describes you best?",
+        options=["adult_31_60", "young_adult_18_30", "senior_60_plus", "teen_13_17", "child_7_12"],
+        format_func=lambda x: {
+            "child_7_12": "Child (7-12 years)",
+            "teen_13_17": "Teen (13-17 years)",
+            "young_adult_18_30": "Young Adult (18-30 years)",
+            "adult_31_60": "Adult (31-60 years)",
+            "senior_60_plus": "Senior (60+ years)",
+        }[x],
+        key="consent_age_group",
+    )
+
+    # Guardian consent for minors
+    if age_group in ("child_7_12", "teen_13_17"):
+        st.warning("Guardian consent is required for minors.")
+        guardian_id = st.text_input("Parent/Guardian Name or ID", key="guardian_id")
+        guardian_consent = st.checkbox(
+            "I am the parent/guardian and I consent to data collection for this minor",
+            key="guardian_consent",
+        )
+
+        if not guardian_consent:
+            st.error("Guardian consent is required to proceed.")
+            return
 
     st.markdown(
         """
@@ -57,17 +83,49 @@ def render_consent_page(api_url: str, user_id: str) -> None:
     col1, _ = st.columns([1, 4])
     with col1:
         if st.button("I Consent", type="primary"):
+            consent_payload: dict[str, object] = {"user_id": user_id}
+            if age_group in ("child_7_12", "teen_13_17"):
+                consent_payload["guardian_consent"] = True
+                consent_payload["guardian_id"] = guardian_id or ""
+
             try:
                 post_resp = httpx.post(
                     f"{api_url}/v1/assessment/consent",
-                    json={"user_id": user_id},
+                    json=consent_payload,
                     timeout=5.0,
                 )
                 if post_resp.status_code in (200, 201):
-                    st.session_state["page"] = "lab"
-                    st.session_state["pending_page_selector"] = "lab"
-                    st.rerun()
+                    st.session_state["consent_age_group"] = age_group
+                    _check_experience_profile_and_redirect(api_url, user_id)
                 else:
                     st.error(f"Failed to record consent: {post_resp.text}")
             except Exception as e:
                 st.error(f"Error connecting to assessment API: {e}")
+
+
+def _check_experience_profile_and_redirect(api_url: str, user_id: str) -> None:
+    """Check if experience profile exists, redirect to onboarding if not."""
+    try:
+        profile_resp = httpx.get(
+            f"{api_url}/v1/assessment/onboarding/profile/{user_id}",
+            params={"user_id": user_id},
+            timeout=5.0,
+        )
+        if profile_resp.status_code == 200:
+            # Profile exists, go to lab
+            st.session_state["page"] = "lab"
+            st.session_state["pending_page_selector"] = "lab"
+            st.rerun()
+        elif profile_resp.status_code == 404:
+            # No profile, go to onboarding
+            st.session_state["page"] = "onboarding"
+            st.rerun()
+        else:
+            st.error(f"Error checking profile: {profile_resp.text}")
+    except Exception as e:
+        st.warning(f"Could not check profile status: {e}")
+        # Default to lab on error
+        if st.button("Continue to Assessment", type="primary"):
+            st.session_state["page"] = "lab"
+            st.session_state["pending_page_selector"] = "lab"
+            st.rerun()

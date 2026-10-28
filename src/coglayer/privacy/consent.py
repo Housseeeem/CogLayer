@@ -37,7 +37,12 @@ class ConsentService:
     # Public API
     # ------------------------------------------------------------------
 
-    def record_consent(self, user_id: str) -> ConsentRecord:
+    def record_consent(
+        self,
+        user_id: str,
+        guardian_consent: bool = False,
+        guardian_id: str | None = None,
+    ) -> ConsentRecord:
         """Persist a new consent record for the user.
 
         If a record already exists (e.g. a previously revoked consent) it
@@ -46,6 +51,8 @@ class ConsentService:
 
         Args:
             user_id: The identifier of the user giving consent.
+            guardian_consent: Whether a parent/guardian has consented (for minors).
+            guardian_id: Identifier of the consenting guardian.
 
         Returns:
             The newly created ``ConsentRecord``.
@@ -54,6 +61,8 @@ class ConsentService:
             user_id=user_id,
             consented_at=datetime.now(UTC),
             revoked_at=None,
+            guardian_consent=guardian_consent,
+            guardian_id=guardian_id,
         )
         self._repo.save_consent(record)
         return record
@@ -74,6 +83,8 @@ class ConsentService:
             user_id=existing.user_id,
             consented_at=existing.consented_at,
             revoked_at=datetime.now(UTC),
+            guardian_consent=existing.guardian_consent,
+            guardian_id=existing.guardian_id,
         )
         self._repo.save_consent(revoked)
 

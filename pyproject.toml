@@ -139,6 +139,7 @@ modules = [
     "coglayer.exercises",
     "coglayer.privacy",
     "coglayer.sim",
+    "coglayer.onboarding",
 ]
 
 # Contract (c): domain modules must not import api or ui
@@ -153,6 +154,7 @@ source_modules = [
     "coglayer.exercises",
     "coglayer.privacy",
     "coglayer.sim",
+    "coglayer.onboarding",
 ]
 forbidden_modules = [
     "coglayer.api",

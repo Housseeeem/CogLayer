@@ -26,6 +26,7 @@ from coglayer.ui.page_views.go_no_go import render_go_no_go_page
 from coglayer.ui.page_views.ioi import render_ioi_page
 from coglayer.ui.page_views.letter_number import render_letter_number_page
 from coglayer.ui.page_views.n_back import render_n_back_page
+from coglayer.ui.page_views.onboarding import render_onboarding_page
 from coglayer.ui.page_views.perception import render_perception_lab_page
 from coglayer.ui.page_views.sequence_span import render_sequence_span_page
 from coglayer.ui.page_views.stroop import render_stroop_page
@@ -34,6 +35,7 @@ from coglayer.ui.page_views.stroop import render_stroop_page
 API_URL = os.environ.get("COGLAYER_API_URL", "http://localhost:8000")
 _SIDEBAR_PAGES: tuple[str, ...] = (
     "consent",
+    "onboarding",
     "lab",
     "profile",
     "coach",
@@ -41,10 +43,11 @@ _SIDEBAR_PAGES: tuple[str, ...] = (
 )
 _SIDEBAR_LABELS: Mapping[str, str] = {
     "consent": "1. Informed Consent",
-    "lab": "2. Cognitive Lab",
-    "profile": "3. Cognitive Profile & Dashboard",
-    "coach": "4. Cognitive Coach",
-    "ioi": "5. Experimental Interaction Index",
+    "onboarding": "2. Onboarding",
+    "lab": "3. Cognitive Lab",
+    "profile": "4. Cognitive Profile & Dashboard",
+    "coach": "5. Cognitive Coach",
+    "ioi": "6. Experimental Interaction Index",
 }
 _SIDEBAR_ALIASES: Mapping[str, str] = {
     "dashboard": "profile",
@@ -303,6 +306,8 @@ def main() -> None:
     # Page dispatch
     if page == "consent":
         render_consent_page(API_URL, user_id)
+    elif page == "onboarding":
+        render_onboarding_page(API_URL, user_id)
     elif page == "lab":
         render_cognitive_lab_page(API_URL, user_id)
     elif page == "go_no_go":

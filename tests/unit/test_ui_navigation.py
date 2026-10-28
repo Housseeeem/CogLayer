@@ -81,11 +81,11 @@ def test_sidebar_pages_exclude_next_and_merge_profile() -> None:
     """Visible navigation hides Next Assessment Task and merges profile with dashboard."""
     from coglayer.ui.app import _SIDEBAR_LABELS, _SIDEBAR_PAGES
 
-    assert _SIDEBAR_PAGES == ("consent", "lab", "profile", "coach", "ioi")
+    assert _SIDEBAR_PAGES == ("consent", "onboarding", "lab", "profile", "coach", "ioi")
     assert "next" not in _SIDEBAR_PAGES
     assert "dashboard" not in _SIDEBAR_PAGES
-    assert _SIDEBAR_LABELS["lab"] == "2. Cognitive Lab"
-    assert _SIDEBAR_LABELS["profile"] == "3. Cognitive Profile & Dashboard"
+    assert _SIDEBAR_LABELS["lab"] == "3. Cognitive Lab"
+    assert _SIDEBAR_LABELS["profile"] == "4. Cognitive Profile & Dashboard"
 
 
 def test_ioi_url_selects_ioi_page() -> None:

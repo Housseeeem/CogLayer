@@ -9,7 +9,7 @@ No clinical terminology is used. This tool is not a clinical assessment.
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Literal, Self
 
@@ -184,6 +184,13 @@ class SessionStatus(StrEnum):
     INTERRUPTED = "interrupted"
 
 
+class SessionType(StrEnum):
+    """Type of session (assessment vs calibration)."""
+
+    ASSESSMENT = "assessment"
+    CALIBRATION = "calibration"
+
+
 class Session(BaseModel):
     """A single assessment session for a user."""
 
@@ -192,6 +199,7 @@ class Session(BaseModel):
     start_time: datetime
     end_time: datetime | None
     status: SessionStatus
+    session_type: SessionType = SessionType.ASSESSMENT
     completed_tasks: list[str]  # task_ids completed in this session
 
 
@@ -343,6 +351,8 @@ class ConsentRecord(BaseModel):
     user_id: str
     consented_at: datetime
     revoked_at: datetime | None = None
+    guardian_consent: bool = False
+    guardian_id: str | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -436,3 +446,84 @@ class CoachConversation(BaseModel):
     session_id: str | None = None
     created_at: datetime
     messages: list[CoachMessage] = Field(default_factory=list)
+
+
+# ---------------------------------------------------------------------------
+# Experience Profile for Personalized Onboarding
+# ---------------------------------------------------------------------------
+
+
+class AgeGroup(StrEnum):
+    """Age group categories for personalized experience."""
+
+    CHILD_7_12 = "child_7_12"
+    TEEN_13_17 = "teen_13_17"
+    YOUNG_ADULT_18_30 = "young_adult_18_30"
+    ADULT_31_60 = "adult_31_60"
+    SENIOR_60_PLUS = "senior_60_plus"
+
+
+class TechComfort(StrEnum):
+    """Self-reported comfort level with technology."""
+
+    NEW = "new"
+    SOME_EXPERIENCE = "some_experience"
+    COMFORTABLE = "comfortable"
+    VERY_COMFORTABLE = "very_comfortable"
+
+
+class InfoStyle(StrEnum):
+    """Preferred information presentation style."""
+
+    VISUAL = "visual"
+    STEP_BY_STEP = "step_by_step"
+    SHORT_SIMPLE = "short_simple"
+    DETAILED = "detailed"
+    CONVERSATIONAL = "conversational"
+
+
+class LayoutType(StrEnum):
+    """Preferred UI layout pattern."""
+
+    GUIDED_JOURNEY = "guided_journey"
+    DASHBOARD = "dashboard"
+    CONVERSATION_FIRST = "conversation_first"
+    MINIMAL = "minimal"
+
+
+class ThemeType(StrEnum):
+    """Visual theme preference."""
+
+    LARGER_TEXT = "larger_text"
+    STANDARD = "standard"
+    HIGH_CONTRAST = "high_contrast"
+    SOFTER_COLORS = "softer_colors"
+    BRIGHTER_COLORS = "brighter_colors"
+
+
+class GuidanceLevel(StrEnum):
+    """Level of guidance and scaffolding."""
+
+    MORE = "more"
+    SOME = "some"
+    MINIMAL = "minimal"
+
+
+class ExperienceProfile(BaseModel):
+    """User's personalized experience profile for adaptive behavior.
+
+    Captures age group, goals, technology comfort, information style,
+    layout/theme preferences, and guidance level to drive adaptive behavior
+    across coach, task selector, navigation, and presentation.
+    """
+
+    user_id: str
+    age_group: AgeGroup
+    goals: list[str] = Field(min_length=1)
+    tech_comfort: TechComfort
+    info_style: InfoStyle
+    layout: LayoutType
+    theme: ThemeType
+    guidance_level: GuidanceLevel | None = None
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
