@@ -16,6 +16,8 @@ TASK_PAGE_MAP: Mapping[str, str] = {
     "perception_lab": "perception_lab",
 }
 
+ONBOARDING_PAGE = "onboarding"
+
 
 @dataclass(frozen=True)
 class NavigationTarget:
