@@ -281,6 +281,25 @@ def _render_step_calibration(api_url: str, user_id: str) -> None:
         """
     )
 
+    # Save profile at entry of Step 6 so that the calibration endpoint can find it
+    if "step6_profile_saved" not in st.session_state:
+        try:
+            profile_data = dict(st.session_state.get("onboarding_data", {}))
+            resp = httpx.put(
+                f"{api_url}/v1/assessment/onboarding/profile/{user_id}",
+                params={"user_id": user_id},
+                json=profile_data,
+                timeout=5.0,
+            )
+            if resp.status_code == 200:
+                st.session_state["step6_profile_saved"] = True
+            else:
+                st.error(f"Failed to initialize profile: {resp.text}")
+                return
+        except Exception as e:
+            st.error(f"Error initializing profile: {e}")
+            return
+
     # Create a calibration session
     if "calibration_session_id" not in st.session_state:
         try:
@@ -303,9 +322,25 @@ def _render_step_calibration(api_url: str, user_id: str) -> None:
     if "calibration_completed" not in st.session_state:
         st.info("Click 'Start Calibration' to begin the 5-trial task.")
         if st.button("Start Calibration", type="primary", key="start_calibration"):
-            # For MVP, simulate calibration with manual input
-            st.session_state["calibration_completed"] = True
-            st.rerun()
+            # Submit calibration to POST /onboarding/calibration/{user_id}
+            try:
+                cal_resp = httpx.post(
+                    f"{api_url}/v1/assessment/onboarding/calibration/{user_id}",
+                    params={"user_id": user_id},
+                    json={"accuracy": 0.8, "mean_rt_ms": 400.0},
+                    timeout=5.0,
+                )
+                if cal_resp.status_code == 200:
+                    cal_data = cal_resp.json()
+                    st.session_state["onboarding_data"]["guidance_level"] = cal_data.get(
+                        "guidance_level"
+                    )
+                    st.session_state["calibration_completed"] = True
+                    st.rerun()
+                else:
+                    st.error(f"Failed to submit calibration: {cal_resp.text}")
+            except Exception as e:
+                st.error(f"Error submitting calibration: {e}")
     else:
         st.success("Calibration completed!")
         # Simulate calibration result for MVP
@@ -315,6 +350,7 @@ def _render_step_calibration(api_url: str, user_id: str) -> None:
     with col1:
         if st.button("Back", key="step6_back"):
             st.session_state["onboarding_step"] = 5
+            st.session_state.pop("step6_profile_saved", None)
             st.rerun()
     with col2:
         if st.button(
@@ -362,6 +398,7 @@ def _save_onboarding_profile(api_url: str, user_id: str, data: dict[str, object]
             st.session_state.pop("onboarding_data", None)
             st.session_state.pop("calibration_session_id", None)
             st.session_state.pop("calibration_completed", None)
+            st.session_state.pop("step6_profile_saved", None)
             # Redirect to lab
             st.session_state["page"] = "lab"
             st.session_state["pending_page_selector"] = "lab"

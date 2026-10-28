@@ -607,6 +607,42 @@ def test_onboarding_page_requires_age_group(mock_st: MagicMock) -> None:
     mock_st.error.assert_called()
 
 
+@patch("coglayer.ui.page_views.onboarding.httpx.post")
+@patch("coglayer.ui.page_views.onboarding.httpx.put")
+@patch("coglayer.ui.page_views.onboarding.st")
+def test_onboarding_step6_saves_profile_at_entry(
+    mock_st: MagicMock, mock_put: MagicMock, mock_post: MagicMock
+) -> None:
+    """Step 6 saves onboarding profile via PUT before running calibration."""
+    onboarding_data = {
+        "age_group": "adult_31_60",
+        "goals": ["Improve work focus"],
+        "tech_comfort": "comfortable",
+        "info_style": "detailed",
+        "layout": "dashboard",
+        "theme": "standard",
+    }
+    session_store: dict[str, object] = {
+        "onboarding_step": 6,
+        "onboarding_data": onboarding_data,
+    }
+    mock_st.session_state = session_store
+    mock_st.columns.return_value = [MagicMock(), MagicMock(), MagicMock()]
+    mock_st.button.return_value = False
+    mock_put.return_value = MagicMock(status_code=200, json=lambda: {})
+    mock_post.return_value = MagicMock(status_code=201, json=lambda: {"session_id": "cal_sess_1"})
+
+    render_onboarding_page("http://testserver", "user_1")
+
+    assert session_store.get("step6_profile_saved") is True
+    mock_put.assert_called_once_with(
+        "http://testserver/v1/assessment/onboarding/profile/user_1",
+        params={"user_id": "user_1"},
+        json=onboarding_data,
+        timeout=5.0,
+    )
+
+
 @patch("coglayer.ui.page_views.consent.httpx.get")
 @patch("coglayer.ui.page_views.consent.st")
 def test_consent_redirects_to_onboarding_no_profile(

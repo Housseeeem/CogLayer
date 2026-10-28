@@ -383,3 +383,57 @@ def test_calibration_adult_accepted(client: TestClient) -> None:
     assert response.status_code == 200
     data = response.json()
     assert data["guidance_level"] is not None
+
+
+def test_guidance_level_survives_final_put(client: TestClient) -> None:
+    """A final PUT without guidance_level does not overwrite calibrated guidance_level."""
+    user_id = "surviving_guidance_user"
+
+    # 1. User consents
+    client.post("/v1/assessment/consent", json={"user_id": user_id})
+
+    # 2. Initial profile saved at entry of step 6 (no guidance_level yet)
+    initial_put_resp = client.put(
+        f"/v1/assessment/onboarding/profile/{user_id}?user_id={user_id}",
+        json={
+            "age_group": "adult_31_60",
+            "goals": ["improve_focus"],
+            "tech_comfort": "comfortable",
+            "info_style": "detailed",
+            "layout": "dashboard",
+            "theme": "standard",
+        },
+    )
+    assert initial_put_resp.status_code == 200
+    assert initial_put_resp.json()["guidance_level"] is None
+
+    # 3. Calibration submitted during step 6
+    cal_resp = client.post(
+        f"/v1/assessment/onboarding/calibration/{user_id}?user_id={user_id}",
+        json={"accuracy": 0.8, "mean_rt_ms": 350.0},
+    )
+    assert cal_resp.status_code == 200
+    cal_guidance = cal_resp.json()["guidance_level"]
+    assert cal_guidance is not None
+
+    # 4. Final PUT at step 7 without guidance_level (guidance_level=None)
+    final_put_resp = client.put(
+        f"/v1/assessment/onboarding/profile/{user_id}?user_id={user_id}",
+        json={
+            "age_group": "adult_31_60",
+            "goals": ["improve_focus"],
+            "tech_comfort": "comfortable",
+            "info_style": "detailed",
+            "layout": "dashboard",
+            "theme": "standard",
+        },
+    )
+    assert final_put_resp.status_code == 200
+    assert final_put_resp.json()["guidance_level"] == cal_guidance
+
+    # 5. GET confirms guidance_level persisted
+    get_resp = client.get(
+        f"/v1/assessment/onboarding/profile/{user_id}?user_id={user_id}",
+    )
+    assert get_resp.status_code == 200
+    assert get_resp.json()["guidance_level"] == cal_guidance

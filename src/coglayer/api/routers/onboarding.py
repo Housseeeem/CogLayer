@@ -116,6 +116,12 @@ def save_onboarding_profile(
     # Guardian consent check for minors
     _check_guardian_consent(consent_repo, user_id, body.age_group)
 
+    # Preserve existing guidance_level if not provided in this update
+    existing_profile = onboarding_repo.get_profile(user_id)
+    guidance_level = body.guidance_level
+    if guidance_level is None and existing_profile is not None:
+        guidance_level = existing_profile.guidance_level
+
     profile = ExperienceProfile(
         user_id=user_id,
         age_group=body.age_group,
@@ -124,7 +130,7 @@ def save_onboarding_profile(
         info_style=body.info_style,
         layout=body.layout,
         theme=body.theme,
-        guidance_level=body.guidance_level,
+        guidance_level=guidance_level,
     )
     onboarding_repo.save_profile(profile)
     return profile
