@@ -179,7 +179,9 @@ class SQLiteAssessmentRepository:
         if row is None:
             return None
         session_type = (
-            SessionType(row["session_type"]) if row.get("session_type") else SessionType.ASSESSMENT
+            SessionType(row["session_type"])
+            if "session_type" in row.keys()
+            else SessionType.ASSESSMENT
         )
         return Session(
             session_id=row["session_id"],
@@ -206,7 +208,7 @@ class SQLiteAssessmentRepository:
                 end_time=_str_to_dt(row["end_time"]) if row["end_time"] else None,
                 status=SessionStatus(row["status"]),
                 session_type=SessionType(row["session_type"])
-                if row.get("session_type")
+                if "session_type" in row.keys()
                 else SessionType.ASSESSMENT,
                 completed_tasks=json.loads(row["completed_tasks"]),
             )
