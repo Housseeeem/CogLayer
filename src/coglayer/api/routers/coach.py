@@ -20,14 +20,21 @@ from coglayer.api.deps import (
     get_consent_service,
     get_conversation_service,
     get_db_settings,
+    get_experience_profile_repo,
     get_llm_provider,
     get_profile_repo,
 )
 from coglayer.coach.coach import CognitiveCoach
 from coglayer.coach.conversation import ConversationService
+from coglayer.core.adaptation import get_coach_adaptation
 from coglayer.core.brain_twin import build_brain_twin_signal
 from coglayer.core.models import CognitiveProfile
-from coglayer.core.protocols import AssessmentRepository, LLMProvider, ProfileRepository
+from coglayer.core.protocols import (
+    AssessmentRepository,
+    ExperienceProfileRepository,
+    LLMProvider,
+    ProfileRepository,
+)
 from coglayer.core.settings import Settings
 from coglayer.privacy.consent import ConsentService
 
@@ -51,6 +58,7 @@ class MessageRequest(BaseModel):
     """Request to add a message to a conversation."""
 
     content: str = Field(min_length=1, max_length=8192)
+    is_predefined: bool = False
 
 
 @router.post(
@@ -63,6 +71,7 @@ def get_coaching_feedback(
     consent_service: Annotated[ConsentService, Depends(get_consent_service)],
     assessment_repo: Annotated[AssessmentRepository, Depends(get_assessment_repo)],
     profile_repo: Annotated[ProfileRepository, Depends(get_profile_repo)],
+    onboarding_repo: Annotated[ExperienceProfileRepository, Depends(get_experience_profile_repo)],
     coach: Annotated[CognitiveCoach, Depends(get_coach)],
     provider: Annotated[LLMProvider | None, Depends(get_llm_provider)],
     settings: Annotated[Settings, Depends(get_db_settings)],
@@ -125,11 +134,17 @@ def get_coaching_feedback(
         )
 
     signal = build_brain_twin_signal(profile.evidence_history)
+    profile_exp = onboarding_repo.get_profile(user_id)
+    adaptation = get_coach_adaptation(profile_exp)
+    effective_provider = provider if adaptation.allow_free_chat else None
+    instruction = adaptation.system_prompt if adaptation.allow_free_chat else None
+
     return coach.generate_feedback(
         profile,
-        provider=provider,
+        provider=effective_provider,
         settings=settings,
         brain_twin_signal=signal,
+        instruction=instruction,
     )
 
 
@@ -197,6 +212,7 @@ def add_message(
     consent_service: Annotated[ConsentService, Depends(get_consent_service)],
     assessment_repo: Annotated[AssessmentRepository, Depends(get_assessment_repo)],
     profile_repo: Annotated[ProfileRepository, Depends(get_profile_repo)],
+    onboarding_repo: Annotated[ExperienceProfileRepository, Depends(get_experience_profile_repo)],
     conversation_service: Annotated[ConversationService, Depends(get_conversation_service)],
     provider: Annotated[LLMProvider | None, Depends(get_llm_provider)],
     settings: Annotated[Settings, Depends(get_db_settings)],
@@ -206,6 +222,7 @@ def add_message(
     Validates:
     - User has active consent (HTTP 403)
     - Conversation belongs to the user (HTTP 403)
+    - For child users: free text is forbidden (HTTP 403); only predefined messages accepted.
     """
     # Consent verification
     if not consent_service.has_consented(user_id):
@@ -221,6 +238,18 @@ def add_message(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Conversation not found or forbidden for this user.",
         )
+
+    profile_exp = onboarding_repo.get_profile(user_id)
+    adaptation = get_coach_adaptation(profile_exp)
+
+    # Child safety guard: strictly no free text input
+    if not adaptation.allow_free_chat:
+        if not body.is_predefined or body.content not in adaptation.allowed_child_messages:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Free text messages are not permitted for child accounts. "
+                "Please use predefined options.",
+            )
 
     # Get profile for context
     profile = profile_repo.get_profile(user_id)
@@ -244,6 +273,7 @@ def add_message(
         provider,
         settings,
         brain_twin_signal=signal,
+        adaptation=adaptation,
     )
 
     return {"content": response.content}
