@@ -95,11 +95,10 @@ def render_consent_page(api_url: str, user_id: str) -> None:
                     timeout=5.0,
                 )
                 if post_resp.status_code in (200, 201):
-                    st.session_state["consent_age_group"] = age_group
                     _check_experience_profile_and_redirect(api_url, user_id)
                 else:
                     st.error(f"Failed to record consent: {post_resp.text}")
-            except Exception as e:
+            except httpx.HTTPError as e:
                 st.error(f"Error connecting to assessment API: {e}")
 
 

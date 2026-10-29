@@ -369,6 +369,51 @@ def test_consent_page_gives_consent(
     assert mock_st.session_state.get("page") == "lab"
 
 
+class _WidgetGuardedSessionState(dict[str, object]):
+    """Session state mock enforcing that widget keys cannot be set after widget creation."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.widget_keys: set[str] = set()
+
+    def __setitem__(self, key: str, value: object) -> None:
+        if key in self.widget_keys:
+            from streamlit.errors import StreamlitAPIException
+
+            raise StreamlitAPIException(
+                f"st.session_state['{key}'] cannot be modified after widget instantiation."
+            )
+        super().__setitem__(key, value)
+
+
+@patch("coglayer.ui.page_views.consent.httpx.post")
+@patch("coglayer.ui.page_views.consent.httpx.get")
+@patch("coglayer.ui.page_views.consent.st")
+def test_consent_page_does_not_modify_widget_key(
+    mock_st: MagicMock, mock_get: MagicMock, mock_post: MagicMock
+) -> None:
+    """Consent page does not write to a widget session_state key after instantiation."""
+    mock_get.return_value = MagicMock(status_code=200, json=lambda: {"has_consented": False})
+    mock_post.return_value = MagicMock(status_code=201)
+    mock_st.columns.return_value = [MagicMock(), MagicMock()]
+    mock_st.button.return_value = True
+
+    session_state = _WidgetGuardedSessionState()
+    mock_st.session_state = session_state
+
+    def mock_radio(*args: object, **kwargs: object) -> str:
+        key = kwargs.get("key")
+        if isinstance(key, str):
+            session_state.widget_keys.add(key)
+        return "adult_31_60"
+
+    mock_st.radio.side_effect = mock_radio
+
+    render_consent_page("http://testserver", "user_1")
+    assert mock_st.session_state.get("page") == "lab"
+    mock_st.error.assert_not_called()
+
+
 @patch("coglayer.ui.page_views.profile.httpx.get")
 @patch("coglayer.ui.page_views.profile.st")
 def test_profile_page_empty(mock_st: MagicMock, mock_get: MagicMock) -> None:
@@ -836,7 +881,7 @@ def test_consent_page_error_handling(
     mock_get.side_effect = Exception("Connection refused")
     mock_st.columns.return_value = [MagicMock(), MagicMock()]
     mock_st.button.return_value = True
-    mock_post.side_effect = Exception("API error")
+    mock_post.side_effect = httpx.RequestError("API error")
     mock_st.session_state = {}
     render_consent_page("http://testserver", "user_1")
     assert mock_st.warning.called
