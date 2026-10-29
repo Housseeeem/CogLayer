@@ -14,6 +14,7 @@ from urllib.parse import urlsplit
 import httpx
 import streamlit as st
 
+from coglayer.core.adaptation import get_theme_css
 from coglayer.ui.api import get_assessment_session, get_assessment_sessions, get_decision
 from coglayer.ui.navigation import navigate_decision
 from coglayer.ui.page_views.coach import render_coach_page
@@ -242,6 +243,25 @@ def _prepare_navigation_state(current_url: str | None) -> None:
             )
 
 
+def _apply_user_theme(api_url: str, user_id: str) -> None:
+    """Fetch user's onboarding profile and inject theme CSS."""
+    try:
+        resp = httpx.get(
+            f"{api_url}/v1/assessment/onboarding/profile/{user_id}",
+            params={"user_id": user_id},
+            timeout=3.0,
+        )
+        if resp.status_code == 200:
+            profile_data = resp.json()
+            if isinstance(profile_data, dict):
+                theme_str = profile_data.get("theme")
+                css = get_theme_css(theme_str)
+                if css:
+                    st.markdown(f"<style>{css}</style>", unsafe_allow_html=True)
+    except (httpx.HTTPError, ValueError):
+        pass
+
+
 def main() -> None:
     st.set_page_config(
         page_title="CogLayer Cognitive Coaching",
@@ -256,6 +276,9 @@ def main() -> None:
         st.session_state["page"] = "consent"
     if "session_id" not in st.session_state:
         st.session_state["session_id"] = None
+
+    user_id = st.session_state.get("user_id", "user_default")
+    _apply_user_theme(API_URL, user_id)
 
     current_url = st.context.url
     _prepare_navigation_state(current_url if isinstance(current_url, str) else None)

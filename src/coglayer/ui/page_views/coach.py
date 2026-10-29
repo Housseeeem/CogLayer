@@ -36,13 +36,19 @@ def render_coach_page(api_url: str, user_id: str) -> None:
         return
 
     # Display conversation history
-    for msg in st.session_state.chat_messages:
+    for msg in st.session_state["chat_messages"]:
         with st.chat_message(msg["role"]):
             st.write(msg["content"])
 
-    # Fetch onboarding profile to adapt UI for age group
+    # Fetch onboarding profile to adapt UI for age group and presentation
     profile = _fetch_experience_profile(api_url, user_id)
     age_group = profile.get("age_group") if isinstance(profile, dict) else None
+    info_style = profile.get("info_style") if isinstance(profile, dict) else None
+
+    if info_style in ("short_simple", "step_by_step"):
+        st.caption("Concise coaching mode.")
+    elif info_style == "detailed":
+        st.caption("Comprehensive cognitive coaching view.")
 
     # Child mode: strictly no free text input, predefined response buttons only
     if age_group == "child_7_12":

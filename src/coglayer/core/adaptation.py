@@ -36,6 +36,7 @@ __all__ = [
     "UIAdaptationConfig",
     "get_coach_adaptation",
     "get_selector_adaptation",
+    "get_theme_css",
     "get_ui_adaptation",
 ]
 
@@ -365,3 +366,35 @@ def get_ui_adaptation(profile: ExperienceProfile | None) -> UIAdaptationConfig:
         default_page=default_page,
         is_compact_coach=is_compact,
     )
+
+
+def get_theme_css(theme: ThemeType | str | None) -> str:
+    """Return CSS string corresponding to a theme type for UI injection."""
+    if theme is None:
+        return ""
+    theme_val = theme.value if isinstance(theme, ThemeType) else str(theme)
+    if theme_val == ThemeType.LARGER_TEXT.value:
+        return (
+            'html, body, [class*="css"], p, span, div, button {'
+            " font-size: 1.15rem !important; line-height: 1.6 !important; }"
+            " h1 { font-size: 2.2rem !important; }"
+            " h2 { font-size: 1.8rem !important; }"
+            " h3 { font-size: 1.4rem !important; }"
+        )
+    if theme_val == ThemeType.HIGH_CONTRAST.value:
+        return (
+            "body, .stApp { background-color: #000000 !important; color: #ffffff !important; }"
+            " p, span, div, label { color: #ffffff !important; }"
+            " button, .stButton>button { border: 2px solid #ffffff !important;"
+            " background-color: #1a1a1a !important; color: #ffffff !important;"
+            " font-weight: bold !important; }"
+        )
+    if theme_val == ThemeType.SOFTER_COLORS.value:
+        return ".stApp { background-color: #f7f9f8 !important; color: #2d3748 !important; }"
+    if theme_val == ThemeType.BRIGHTER_COLORS.value:
+        return (
+            ".stApp { background-color: #ffffff !important; }"
+            " button, .stButton>button { border-radius: 8px !important; "
+            "font-weight: 600 !important; }"
+        )
+    return ""
