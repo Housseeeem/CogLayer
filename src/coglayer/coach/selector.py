@@ -18,6 +18,7 @@ from coglayer.core.models import (
     AdaptiveDailyPlan,
     AdaptiveGameRecommendation,
     AdaptiveRecommendationCriteria,
+    GuidanceLevel,
     Session,
     TaskDescriptor,
     TaskResult,
@@ -70,7 +71,12 @@ class AdaptiveGameSelector:
         seed_hash = hashlib.sha256(f"{criteria.user_id}:{plan_date}".encode()).hexdigest()
         seed = int(seed_hash, 16) % 1_000_000
 
-        target_count = max(2, min(3, criteria.target_game_count))
+        if criteria.guidance_level == GuidanceLevel.MORE:
+            target_count = 2
+        elif criteria.guidance_level == GuidanceLevel.MINIMAL:
+            target_count = max(3, criteria.target_game_count)
+        else:
+            target_count = max(2, min(3, criteria.target_game_count))
         excluded = set(criteria.excluded_task_ids)
         available_descriptors = [d for d in self._descriptors if d.task_id not in excluded]
 
@@ -186,11 +192,22 @@ class AdaptiveGameSelector:
             )
 
         factors_used = ["initial_diversity", "introductory_baseline"]
+        if criteria.guidance_level == GuidanceLevel.MORE:
+            factors_used.append("guidance_scaffolding_more")
+        elif criteria.guidance_level == GuidanceLevel.MINIMAL:
+            factors_used.append("guidance_autonomy_minimal")
+        elif criteria.guidance_level == GuidanceLevel.SOME:
+            factors_used.append("guidance_balanced_some")
+
         if criteria.subjective_feedback:
             feedback_lower = criteria.subjective_feedback.lower()
             fatigue_terms = ("fatigue", "tired", "exhausted", "low energy")
             if any(term in feedback_lower for term in fatigue_terms):
                 factors_used.append("subjective_fatigue_adaptation")
+
+        if criteria.guidance_level == GuidanceLevel.MORE:
+            task_order = {"go_no_go": 0, "digit_span": 1, "stroop": 2}
+            recommendations.sort(key=lambda r: task_order.get(r.task_id, 99))
 
         return AdaptiveDailyPlan(
             user_id=criteria.user_id,
@@ -249,6 +266,18 @@ class AdaptiveGameSelector:
                 )
             )
 
+        factors_used = ["data_quality_verification", "diversity"]
+        if criteria.guidance_level == GuidanceLevel.MORE:
+            factors_used.append("guidance_scaffolding_more")
+        elif criteria.guidance_level == GuidanceLevel.MINIMAL:
+            factors_used.append("guidance_autonomy_minimal")
+        elif criteria.guidance_level == GuidanceLevel.SOME:
+            factors_used.append("guidance_balanced_some")
+
+        if criteria.guidance_level == GuidanceLevel.MORE:
+            task_order = {"go_no_go": 0, "digit_span": 1, "stroop": 2}
+            recommendations.sort(key=lambda r: task_order.get(r.task_id, 99))
+
         return AdaptiveDailyPlan(
             user_id=criteria.user_id,
             plan_date=plan_date,
@@ -256,7 +285,7 @@ class AdaptiveGameSelector:
             deterministic_seed=seed,
             session_id=criteria.session_id,
             status="generated",
-            factors_used=["data_quality_verification", "diversity"],
+            factors_used=factors_used,
             fallback_strategy="data_sufficiency_fallback",
             is_personalized=False,
         )
@@ -276,6 +305,12 @@ class AdaptiveGameSelector:
         brain_twin_signal: BrainTwinSignal | None,
     ) -> AdaptiveDailyPlan:
         factors_used: list[str] = ["history_performance", "diversity"]
+        if criteria.guidance_level == GuidanceLevel.MORE:
+            factors_used.append("guidance_scaffolding_more")
+        elif criteria.guidance_level == GuidanceLevel.MINIMAL:
+            factors_used.append("guidance_autonomy_minimal")
+        elif criteria.guidance_level == GuidanceLevel.SOME:
+            factors_used.append("guidance_balanced_some")
         fallback_strategy: str | None = None
 
         # Analyze task history
@@ -343,6 +378,16 @@ class AdaptiveGameSelector:
             if variation_flagged and task_id == "go_no_go":
                 score += 8.0
 
+            # Guidance level adaptation
+            if criteria.guidance_level == GuidanceLevel.MORE:
+                if task_id in ("go_no_go", "digit_span"):
+                    score += 4.0
+            elif criteria.guidance_level == GuidanceLevel.MINIMAL:
+                if len(task_hist) >= 2 and task_hist[-1].data_quality.completeness >= 0.80:
+                    score += 4.0
+                elif task_id not in ("go_no_go", "digit_span"):
+                    score += 1.5
+
             scored_candidates.append((score, desc))
 
         # Deterministic sorting: by score descending, then tie-break alphabetically by task_id
@@ -378,6 +423,15 @@ class AdaptiveGameSelector:
             # Difficulty assignment
             if is_fatigued:
                 difficulty = "introductory"
+            elif criteria.guidance_level == GuidanceLevel.MORE:
+                difficulty = "introductory"
+            elif criteria.guidance_level == GuidanceLevel.MINIMAL:
+                if len(task_hist) >= 2 and task_hist[-1].data_quality.completeness >= 0.80:
+                    difficulty = "challenge"
+                elif not task_hist:
+                    difficulty = "standard"
+                else:
+                    difficulty = "standard"
             elif not task_hist:
                 difficulty = "introductory"
             elif len(task_hist) >= 3 and task_hist[-1].data_quality.completeness >= 0.90:
@@ -395,6 +449,8 @@ class AdaptiveGameSelector:
                 rationale = (
                     f"Targets {dim_label} with introductory pacing to accommodate reported fatigue."
                 )
+            elif criteria.guidance_level == GuidanceLevel.MORE:
+                rationale = f"Offers supportive, paced practice on {dim_label}."
             elif not task_hist:
                 rationale = (
                     f"Introduces {dim_label} to broaden practice variety across cognitive domains."
@@ -413,6 +469,10 @@ class AdaptiveGameSelector:
                     task_version=desc.version or "1.0",
                 )
             )
+
+        if criteria.guidance_level == GuidanceLevel.MORE:
+            task_order = {"go_no_go": 0, "digit_span": 1, "stroop": 2}
+            recommendations.sort(key=lambda r: task_order.get(r.task_id, 99))
 
         return AdaptiveDailyPlan(
             user_id=criteria.user_id,
