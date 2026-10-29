@@ -520,3 +520,94 @@ def test_save_result_unknown_session_raises_integrity_error(tmp_path: pathlib.Pa
     result = _result("nonexistent-session-id", "user1")
     with pytest.raises(_sqlite3.IntegrityError):
         repo.save_result(result)
+
+
+def test_schema_migration_from_legacy_schema(tmp_path: pathlib.Path) -> None:
+    """Migrates legacy database without onboarding columns idempotently."""
+    import sqlite3 as _sqlite3
+
+    from coglayer.core.models import SessionType
+
+    db_path = str(tmp_path / "legacy.db")
+
+    # 1. Create legacy schema with pre-onboarding tables and rows
+    with _sqlite3.connect(db_path) as conn:
+        conn.executescript(
+            """
+            CREATE TABLE consent (
+                user_id      TEXT    NOT NULL PRIMARY KEY,
+                consented_at TEXT    NOT NULL,
+                revoked_at   TEXT
+            );
+            CREATE TABLE sessions (
+                session_id      TEXT    NOT NULL PRIMARY KEY,
+                user_id         TEXT    NOT NULL,
+                start_time      TEXT    NOT NULL,
+                end_time        TEXT,
+                status          TEXT    NOT NULL
+                    CHECK(status IN ('pending','in_progress','completed','interrupted')),
+                completed_tasks TEXT    NOT NULL DEFAULT '[]'
+            );
+            INSERT INTO consent (user_id, consented_at, revoked_at)
+            VALUES ('user_old', '2024-01-15T10:00:00+00:00', NULL);
+            INSERT INTO sessions
+                (session_id, user_id, start_time, end_time, status, completed_tasks)
+            VALUES ('session_old', 'user_old', '2024-01-15T10:00:00+00:00', NULL, 'pending', '[]');
+            """
+        )
+
+    # 2. Initialize with current code
+    consent_repo = SQLiteConsentRepository(db_path)
+    assessment_repo = SQLiteAssessmentRepository(db_path)
+
+    # (a) Verify columns exist in table_info
+    with _sqlite3.connect(db_path) as conn:
+        conn.row_factory = _sqlite3.Row
+        consent_cols = {r["name"] for r in conn.execute("PRAGMA table_info(consent)").fetchall()}
+        assert "guardian_consent" in consent_cols
+        assert "guardian_id" in consent_cols
+
+        sessions_cols = {r["name"] for r in conn.execute("PRAGMA table_info(sessions)").fetchall()}
+        assert "session_type" in sessions_cols
+
+        # (b) Verify legacy data is preserved with default values
+        consent_row = conn.execute(
+            """
+            SELECT user_id, consented_at, guardian_consent, guardian_id
+            FROM consent
+            WHERE user_id = 'user_old'
+            """
+        ).fetchone()
+        assert consent_row is not None
+        assert consent_row["user_id"] == "user_old"
+        assert consent_row["guardian_consent"] == 0
+        assert consent_row["guardian_id"] is None
+
+        session_row = conn.execute(
+            """
+            SELECT session_id, user_id, session_type
+            FROM sessions
+            WHERE session_id = 'session_old'
+            """
+        ).fetchone()
+        assert session_row is not None
+        assert session_row["session_id"] == "session_old"
+        assert session_row["session_type"] == "assessment"
+
+    # (c) Verify get_consent and get_session work
+    consent_record = consent_repo.get_consent("user_old")
+    assert consent_record is not None
+    assert consent_record.user_id == "user_old"
+    assert consent_record.guardian_consent is False
+    assert consent_record.guardian_id is None
+
+    session_record = assessment_repo.get_session("session_old")
+    assert session_record is not None
+    assert session_record.session_id == "session_old"
+    assert session_record.session_type == SessionType.ASSESSMENT
+
+    # (d) Verify second initialization raises no error (idempotent)
+    second_consent_repo = SQLiteConsentRepository(db_path)
+    second_assessment_repo = SQLiteAssessmentRepository(db_path)
+    assert second_consent_repo.get_consent("user_old") is not None
+    assert second_assessment_repo.get_session("session_old") is not None
