@@ -15,7 +15,12 @@ import httpx
 import streamlit as st
 
 from coglayer.core.adaptation import get_theme_css
-from coglayer.ui.api import get_assessment_session, get_assessment_sessions, get_decision
+from coglayer.ui.api import (
+    create_assessment_session,
+    get_assessment_session,
+    get_assessment_sessions,
+    get_decision,
+)
 from coglayer.ui.navigation import navigate_decision
 from coglayer.ui.page_views.coach import render_coach_page
 from coglayer.ui.page_views.cognitive_lab import render_cognitive_lab_page
@@ -189,18 +194,8 @@ def _render_session_picker(user_id: str) -> None:
 def _create_new_session(user_id: str) -> None:
     """Create and activate a new assessment session after explicit user action."""
     try:
-        response = httpx.post(
-            f"{API_URL}/v1/assessment/sessions",
-            json={"user_id": user_id},
-            timeout=5.0,
-        )
-        if response.status_code == 403:
-            st.error("Please provide informed consent before starting an assessment.")
-            return
-        response.raise_for_status()
-        session = response.json()
-        session_id = session.get("session_id") if isinstance(session, dict) else None
-        if not isinstance(session_id, str) or not session_id:
+        session_id = create_assessment_session(API_URL, user_id)
+        if session_id is None:
             raise ValueError("Assessment session response did not include a session ID.")
     except (httpx.HTTPError, ValueError) as exc:
         st.error(f"Error creating assessment session: {exc}")
