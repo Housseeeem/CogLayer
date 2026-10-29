@@ -28,6 +28,7 @@ from coglayer.core.models import (
     TechComfort,
     ThemeType,
 )
+from coglayer.ui.api import create_assessment_session
 
 # ---------------------------------------------------------------------------
 # Calibration parameters (matches onboarding.calibration.CALIBRATION_N_TRIALS)
@@ -707,7 +708,7 @@ def _render_step_summary(api_url: str, user_id: str) -> None:
 
 
 def _save_onboarding_profile(api_url: str, user_id: str, data: dict[str, object]) -> None:
-    """Save the onboarding profile via API."""
+    """Save the onboarding profile via API and create an assessment session."""
     try:
         response = httpx.put(
             f"{api_url}/v1/assessment/onboarding/profile/{user_id}",
@@ -723,6 +724,20 @@ def _save_onboarding_profile(api_url: str, user_id: str, data: dict[str, object]
             st.session_state.pop("calibration_session_id", None)
             st.session_state.pop("calibration_completed", None)
             st.session_state.pop("step6_profile_saved", None)
+
+            # Create an assessment session if one does not already exist
+            existing_session_id = st.session_state.get("session_id")
+            if not (isinstance(existing_session_id, str) and existing_session_id):
+                try:
+                    session_id = create_assessment_session(api_url, user_id)
+                    if session_id:
+                        st.session_state["session_id"] = session_id
+                except httpx.HTTPError:
+                    st.warning(
+                        "Profile saved, but could not create an assessment session. "
+                        "Use 'New Assessment Session' in the sidebar to start."
+                    )
+
             # Redirect to lab
             st.session_state["page"] = "lab"
             st.session_state["pending_page_selector"] = "lab"

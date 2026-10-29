@@ -12,6 +12,7 @@ from unittest.mock import MagicMock, patch
 
 import httpx
 
+from coglayer.ui.api import create_assessment_session
 from coglayer.ui.page_views.coach import render_coach_page
 from coglayer.ui.page_views.consent import render_consent_page
 from coglayer.ui.page_views.go_no_go import render_go_no_go_page
@@ -19,6 +20,23 @@ from coglayer.ui.page_views.ioi import _render_opportunity, render_ioi_page
 from coglayer.ui.page_views.onboarding import render_onboarding_page
 from coglayer.ui.page_views.profile import render_profile_page
 from coglayer.ui.page_views.sequence_span import render_sequence_span_page
+
+
+class _WidgetGuardedSessionState(dict[str, object]):
+    """Session state mock enforcing that widget keys cannot be set after widget creation."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.widget_keys: set[str] = set()
+
+    def __setitem__(self, key: str, value: object) -> None:
+        if key in self.widget_keys:
+            from streamlit.errors import StreamlitAPIException
+
+            raise StreamlitAPIException(
+                f"st.session_state['{key}'] cannot be modified after widget instantiation."
+            )
+        super().__setitem__(key, value)
 
 
 @patch("coglayer.ui.page_views.consent.httpx.get")
@@ -367,23 +385,6 @@ def test_consent_page_gives_consent(
     mock_st.session_state = {}
     render_consent_page("http://testserver", "user_1")
     assert mock_st.session_state.get("page") == "lab"
-
-
-class _WidgetGuardedSessionState(dict[str, object]):
-    """Session state mock enforcing that widget keys cannot be set after widget creation."""
-
-    def __init__(self) -> None:
-        super().__init__()
-        self.widget_keys: set[str] = set()
-
-    def __setitem__(self, key: str, value: object) -> None:
-        if key in self.widget_keys:
-            from streamlit.errors import StreamlitAPIException
-
-            raise StreamlitAPIException(
-                f"st.session_state['{key}'] cannot be modified after widget instantiation."
-            )
-        super().__setitem__(key, value)
 
 
 @patch("coglayer.ui.page_views.consent.httpx.post")
@@ -1047,6 +1048,136 @@ def test_restore_session_from_url_clears_non_resumable_or_invalid_ids() -> None:
             assert _restore_session_from_url("user_1") is None
         assert "session_id" not in query_params
         assert "session_id" not in state
+
+
+@patch("coglayer.ui.api.httpx.post")
+def test_create_assessment_session_returns_id_on_success(mock_post: MagicMock) -> None:
+    """create_assessment_session returns the session ID on successful creation."""
+    mock_post.return_value = MagicMock(status_code=201, json=lambda: {"session_id": "sess-123"})
+
+    session_id = create_assessment_session("http://testserver", "user_1")
+
+    assert session_id == "sess-123"
+    mock_post.assert_called_once_with(
+        "http://testserver/v1/assessment/sessions",
+        json={"user_id": "user_1"},
+        timeout=5.0,
+    )
+
+
+@patch("coglayer.ui.api.httpx.post")
+def test_create_assessment_session_raises_on_403(mock_post: MagicMock) -> None:
+    """create_assessment_session raises HTTPStatusError on 403 (no consent)."""
+    request = httpx.Request("POST", "http://testserver/v1/assessment/sessions")
+    response = httpx.Response(403, request=request)
+    mock_post.return_value = response
+
+    try:
+        create_assessment_session("http://testserver", "user_1")
+        raise AssertionError("Expected HTTPStatusError")
+    except httpx.HTTPStatusError as exc:
+        assert "consent" in str(exc).lower()
+
+
+@patch("coglayer.ui.api.httpx.post")
+def test_create_assessment_session_returns_none_on_invalid_response(
+    mock_post: MagicMock,
+) -> None:
+    """create_assessment_session returns None when response lacks session_id."""
+    mock_post.return_value = MagicMock(status_code=201, json=lambda: {})
+
+    session_id = create_assessment_session("http://testserver", "user_1")
+
+    assert session_id is None
+
+
+@patch("coglayer.ui.page_views.onboarding.httpx.put")
+@patch("coglayer.ui.page_views.onboarding.create_assessment_session")
+@patch("coglayer.ui.page_views.onboarding.st")
+def test_onboarding_save_creates_assessment_session(
+    mock_st: MagicMock, mock_create: MagicMock, mock_put: MagicMock
+) -> None:
+    """Saving onboarding profile creates an assessment session when none exists."""
+    session_store = _WidgetGuardedSessionState()
+    mock_st.session_state = session_store
+    mock_st.button.return_value = True
+    mock_put.return_value = MagicMock(status_code=200)
+    mock_create.return_value = "new-assess-sess"
+
+    from coglayer.ui.page_views.onboarding import _save_onboarding_profile
+
+    _save_onboarding_profile("http://testserver", "user_1", {"age_group": "adult_31_60"})
+
+    assert session_store.get("session_id") == "new-assess-sess"
+    mock_create.assert_called_once_with("http://testserver", "user_1")
+
+
+@patch("coglayer.ui.page_views.onboarding.httpx.put")
+@patch("coglayer.ui.page_views.onboarding.create_assessment_session")
+@patch("coglayer.ui.page_views.onboarding.st")
+def test_onboarding_save_skips_duplicate_session(
+    mock_st: MagicMock, mock_create: MagicMock, mock_put: MagicMock
+) -> None:
+    """Saving onboarding profile does not create a session if one already exists."""
+    session_store = _WidgetGuardedSessionState()
+    session_store["session_id"] = "existing-sess"
+    mock_st.session_state = session_store
+    mock_st.button.return_value = True
+    mock_put.return_value = MagicMock(status_code=200)
+
+    from coglayer.ui.page_views.onboarding import _save_onboarding_profile
+
+    _save_onboarding_profile("http://testserver", "user_1", {"age_group": "adult_31_60"})
+
+    assert session_store.get("session_id") == "existing-sess"
+    mock_create.assert_not_called()
+
+
+@patch("coglayer.ui.page_views.onboarding.httpx.put")
+@patch("coglayer.ui.page_views.onboarding.create_assessment_session")
+@patch("coglayer.ui.page_views.onboarding.st")
+def test_onboarding_save_handles_network_error_gracefully(
+    mock_st: MagicMock, mock_create: MagicMock, mock_put: MagicMock
+) -> None:
+    """Saving onboarding profile shows warning on network error but continues."""
+    session_store = _WidgetGuardedSessionState()
+    mock_st.session_state = session_store
+    mock_st.button.return_value = True
+    mock_put.return_value = MagicMock(status_code=200)
+    mock_create.side_effect = httpx.RequestError("Network error")
+
+    from coglayer.ui.page_views.onboarding import _save_onboarding_profile
+
+    _save_onboarding_profile("http://testserver", "user_1", {"age_group": "adult_31_60"})
+
+    assert session_store.get("session_id") is None
+    mock_st.warning.assert_called()
+    warning_msg = mock_st.warning.call_args[0][0]
+    assert "could not create" in warning_msg.lower()
+    assert session_store.get("page") == "lab"
+
+
+@patch("coglayer.ui.page_views.onboarding.httpx.put")
+@patch("coglayer.ui.page_views.onboarding.create_assessment_session")
+@patch("coglayer.ui.page_views.onboarding.st")
+def test_onboarding_save_does_not_use_calibration_session(
+    mock_st: MagicMock, mock_create: MagicMock, mock_put: MagicMock
+) -> None:
+    """Saving onboarding profile ignores calibration_session_id for the active session."""
+    session_store = _WidgetGuardedSessionState()
+    session_store["calibration_session_id"] = "cal-sess-123"
+    mock_st.session_state = session_store
+    mock_st.button.return_value = True
+    mock_put.return_value = MagicMock(status_code=200)
+    mock_create.return_value = "assess-sess-456"
+
+    from coglayer.ui.page_views.onboarding import _save_onboarding_profile
+
+    _save_onboarding_profile("http://testserver", "user_1", {"age_group": "adult_31_60"})
+
+    assert session_store.get("session_id") == "assess-sess-456"
+    assert session_store.get("calibration_session_id") is None
+    mock_create.assert_called_once_with("http://testserver", "user_1")
 
 
 @patch("coglayer.ui.app.render_cognitive_lab_page")

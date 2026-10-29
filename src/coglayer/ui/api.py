@@ -133,3 +133,27 @@ def update_daily_plan_status(
     if not isinstance(data, dict):
         raise ValueError("Daily plan status response must be an object.")
     return data
+
+
+def create_assessment_session(api_url: str, user_id: str) -> str | None:
+    """Create a new assessment session and return its ID, or None on failure.
+
+    Raises httpx.HTTPError if the request fails; callers should catch and handle.
+    """
+    response = httpx.post(
+        f"{api_url}/v1/assessment/sessions",
+        json={"user_id": user_id},
+        timeout=5.0,
+    )
+    if response.status_code == 403:
+        raise httpx.HTTPStatusError(
+            "Please provide informed consent before starting an assessment.",
+            request=response.request,
+            response=response,
+        )
+    response.raise_for_status()
+    data = response.json()
+    if not isinstance(data, dict):
+        raise ValueError("Assessment session response must be an object.")
+    session_id = data.get("session_id")
+    return session_id if isinstance(session_id, str) and session_id else None
