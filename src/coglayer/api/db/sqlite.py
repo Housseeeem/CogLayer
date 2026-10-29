@@ -83,11 +83,31 @@ def _connect(db_path: str) -> Generator[sqlite3.Connection, None, None]:
         conn.close()
 
 
+def _migrate_schema(conn: sqlite3.Connection) -> None:
+    """Apply lightweight idempotent schema migrations for existing databases."""
+    consent_cols = {row["name"] for row in conn.execute("PRAGMA table_info(consent)").fetchall()}
+    if consent_cols:
+        if "guardian_consent" not in consent_cols:
+            conn.execute(
+                "ALTER TABLE consent ADD COLUMN guardian_consent INTEGER NOT NULL DEFAULT 0"
+            )
+        if "guardian_id" not in consent_cols:
+            conn.execute("ALTER TABLE consent ADD COLUMN guardian_id TEXT")
+
+    sessions_cols = {row["name"] for row in conn.execute("PRAGMA table_info(sessions)").fetchall()}
+    if sessions_cols:
+        if "session_type" not in sessions_cols:
+            conn.execute(
+                "ALTER TABLE sessions ADD COLUMN session_type TEXT NOT NULL DEFAULT 'assessment'"
+            )
+
+
 def _ensure_schema(db_path: str) -> None:
-    """Create tables if they do not exist yet."""
+    """Create tables if they do not exist yet and apply migrations."""
     schema = _SCHEMA_PATH.read_text(encoding="utf-8")
     with _connect(db_path) as conn:
         conn.executescript(schema)
+        _migrate_schema(conn)
 
 
 # ---------------------------------------------------------------------------
