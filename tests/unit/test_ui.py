@@ -369,6 +369,51 @@ def test_consent_page_gives_consent(
     assert mock_st.session_state.get("page") == "lab"
 
 
+class _WidgetGuardedSessionState(dict[str, object]):
+    """Session state mock enforcing that widget keys cannot be set after widget creation."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.widget_keys: set[str] = set()
+
+    def __setitem__(self, key: str, value: object) -> None:
+        if key in self.widget_keys:
+            from streamlit.errors import StreamlitAPIException
+
+            raise StreamlitAPIException(
+                f"st.session_state['{key}'] cannot be modified after widget instantiation."
+            )
+        super().__setitem__(key, value)
+
+
+@patch("coglayer.ui.page_views.consent.httpx.post")
+@patch("coglayer.ui.page_views.consent.httpx.get")
+@patch("coglayer.ui.page_views.consent.st")
+def test_consent_page_does_not_modify_widget_key(
+    mock_st: MagicMock, mock_get: MagicMock, mock_post: MagicMock
+) -> None:
+    """Consent page does not write to a widget session_state key after instantiation."""
+    mock_get.return_value = MagicMock(status_code=200, json=lambda: {"has_consented": False})
+    mock_post.return_value = MagicMock(status_code=201)
+    mock_st.columns.return_value = [MagicMock(), MagicMock()]
+    mock_st.button.return_value = True
+
+    session_state = _WidgetGuardedSessionState()
+    mock_st.session_state = session_state
+
+    def mock_radio(*args: object, **kwargs: object) -> str:
+        key = kwargs.get("key")
+        if isinstance(key, str):
+            session_state.widget_keys.add(key)
+        return "adult_31_60"
+
+    mock_st.radio.side_effect = mock_radio
+
+    render_consent_page("http://testserver", "user_1")
+    assert mock_st.session_state.get("page") == "lab"
+    mock_st.error.assert_not_called()
+
+
 @patch("coglayer.ui.page_views.profile.httpx.get")
 @patch("coglayer.ui.page_views.profile.st")
 def test_profile_page_empty(mock_st: MagicMock, mock_get: MagicMock) -> None:
@@ -607,6 +652,121 @@ def test_onboarding_page_requires_age_group(mock_st: MagicMock) -> None:
     mock_st.error.assert_called()
 
 
+@patch("coglayer.ui.page_views.onboarding.components.html")
+@patch("coglayer.ui.page_views.onboarding.httpx.post")
+@patch("coglayer.ui.page_views.onboarding.httpx.put")
+@patch("coglayer.ui.page_views.onboarding.st")
+def test_onboarding_step6_saves_profile_at_entry(
+    mock_st: MagicMock,
+    mock_put: MagicMock,
+    mock_post: MagicMock,
+    mock_html: MagicMock,
+) -> None:
+    """Step 6 saves onboarding profile via PUT before running calibration."""
+    onboarding_data = {
+        "age_group": "adult_31_60",
+        "goals": ["Improve work focus"],
+        "tech_comfort": "comfortable",
+        "info_style": "detailed",
+        "layout": "dashboard",
+        "theme": "standard",
+    }
+    session_store: dict[str, object] = {
+        "onboarding_step": 6,
+        "onboarding_data": onboarding_data,
+    }
+    mock_st.session_state = session_store
+    mock_st.columns.return_value = [MagicMock(), MagicMock(), MagicMock()]
+    mock_st.button.return_value = False
+    mock_put.return_value = MagicMock(status_code=200, json=lambda: {})
+    mock_post.return_value = MagicMock(status_code=201, json=lambda: {"session_id": "cal_sess_1"})
+
+    render_onboarding_page("http://testserver", "user_1")
+
+    assert session_store.get("step6_profile_saved") is True
+    mock_put.assert_called_once_with(
+        "http://testserver/v1/assessment/onboarding/profile/user_1",
+        params={"user_id": "user_1"},
+        json=onboarding_data,
+        timeout=5.0,
+    )
+    mock_post.assert_called_once_with(
+        "http://testserver/v1/assessment/sessions",
+        json={"user_id": "user_1", "session_type": "calibration"},
+        timeout=5.0,
+    )
+    assert mock_html.called
+
+
+@patch("coglayer.ui.page_views.onboarding.components.html")
+@patch("coglayer.ui.page_views.onboarding.httpx.post")
+@patch("coglayer.ui.page_views.onboarding.httpx.put")
+@patch("coglayer.ui.page_views.onboarding.st")
+def test_onboarding_step6_adult_can_skip_calibration(
+    mock_st: MagicMock,
+    mock_put: MagicMock,
+    mock_post: MagicMock,
+    mock_html: MagicMock,
+) -> None:
+    """Adult can skip calibration and receives default 'some' guidance level."""
+    onboarding_data = {
+        "age_group": "adult_31_60",
+        "goals": ["Maintain sharpness"],
+        "tech_comfort": "comfortable",
+        "info_style": "detailed",
+        "layout": "dashboard",
+        "theme": "standard",
+    }
+    session_store: dict[str, object] = {
+        "onboarding_step": 6,
+        "onboarding_data": onboarding_data,
+        "step6_profile_saved": True,
+        "calibration_session_id": "cal_sess_1",
+    }
+    mock_st.session_state = session_store
+    mock_st.columns.return_value = [MagicMock(), MagicMock(), MagicMock()]
+    # When skip button is clicked
+    mock_st.button.side_effect = lambda label, **kwargs: label.startswith("Skip Calibration")
+    mock_put.return_value = MagicMock(status_code=200, json=lambda: {})
+
+    render_onboarding_page("http://testserver", "user_1")
+
+    assert session_store.get("calibration_completed") is True
+    out_data = session_store.get("onboarding_data")
+    assert isinstance(out_data, dict)
+    assert out_data.get("guidance_level") == "some"
+
+
+@patch("coglayer.ui.page_views.onboarding.st")
+def test_onboarding_step6_completed_displays_non_clinical_language(
+    mock_st: MagicMock,
+) -> None:
+    """When calibration is completed, guidance level is displayed in non-clinical language."""
+    session_store: dict[str, object] = {
+        "onboarding_step": 6,
+        "onboarding_data": {
+            "age_group": "child_7_12",
+            "goals": ["Improve focus"],
+            "guidance_level": "more",
+        },
+        "step6_profile_saved": True,
+        "calibration_session_id": "cal_sess_1",
+        "calibration_completed": True,
+    }
+    mock_st.session_state = session_store
+    mock_st.columns.return_value = [MagicMock(), MagicMock(), MagicMock()]
+    mock_st.button.return_value = False
+
+    render_onboarding_page("http://testserver", "user_1")
+
+    mock_st.success.assert_called()
+    success_msg = mock_st.success.call_args[0][0]
+    assert "Supported Guidance" in success_msg
+    # Ensure no clinical forbidden words in display
+    for forbidden in ["diagnosis", "disorder", "deficit", "impairment", "iq", "patient"]:
+        assert forbidden not in success_msg.lower()
+
+
 @patch("coglayer.ui.page_views.consent.httpx.get")
 @patch("coglayer.ui.page_views.consent.st")
 def test_consent_redirects_to_onboarding_no_profile(
@@ -721,7 +881,7 @@ def test_consent_page_error_handling(
     mock_get.side_effect = Exception("Connection refused")
     mock_st.columns.return_value = [MagicMock(), MagicMock()]
     mock_st.button.return_value = True
-    mock_post.side_effect = Exception("API error")
+    mock_post.side_effect = httpx.RequestError("API error")
     mock_st.session_state = {}
     render_consent_page("http://testserver", "user_1")
     assert mock_st.warning.called

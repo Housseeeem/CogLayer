@@ -295,3 +295,145 @@ def test_save_profile_without_guidance_level(client: TestClient) -> None:
     assert response.status_code == 200
     data = response.json()
     assert data["guidance_level"] is None
+
+
+# ---------------------------------------------------------------------------
+# Problem 1: Guardian consent guard on calibration endpoint
+# ---------------------------------------------------------------------------
+
+
+def _setup_profile(client: TestClient, user_id: str, age_group: str) -> None:
+    """Helper: save an onboarding profile so calibration can find it."""
+    client.put(
+        f"/v1/assessment/onboarding/profile/{user_id}?user_id={user_id}",
+        json={
+            "age_group": age_group,
+            "goals": ["focus"],
+            "tech_comfort": "comfortable",
+            "info_style": "detailed",
+            "layout": "dashboard",
+            "theme": "standard",
+        },
+    )
+
+
+def test_calibration_minor_without_guardian_refused(client: TestClient) -> None:
+    """Child without guardian consent is refused on calibration (403)."""
+    user_id = "cal_child_no_guardian"
+
+    # First grant consent WITH guardian so we can save a child profile
+    client.post(
+        "/v1/assessment/consent",
+        json={"user_id": user_id, "guardian_consent": True, "guardian_id": "p1"},
+    )
+    _setup_profile(client, user_id, "child_7_12")
+
+    # Now re-record consent WITHOUT guardian_consent
+    client.post(
+        "/v1/assessment/consent",
+        json={"user_id": user_id, "guardian_consent": False, "guardian_id": None},
+    )
+
+    response = client.post(
+        f"/v1/assessment/onboarding/calibration/{user_id}?user_id={user_id}",
+        json={"accuracy": 0.8, "mean_rt_ms": 350.0},
+    )
+
+    assert response.status_code == 403
+    assert "guardian" in response.json()["detail"].lower()
+
+
+def test_calibration_minor_with_guardian_accepted(client: TestClient) -> None:
+    """Child with guardian consent can submit calibration."""
+    user_id = "cal_child_with_guardian"
+
+    # Consent WITH guardian_consent
+    client.post(
+        "/v1/assessment/consent",
+        json={
+            "user_id": user_id,
+            "guardian_consent": True,
+            "guardian_id": "parent456",
+        },
+    )
+    _setup_profile(client, user_id, "child_7_12")
+
+    response = client.post(
+        f"/v1/assessment/onboarding/calibration/{user_id}?user_id={user_id}",
+        json={"accuracy": 0.8, "mean_rt_ms": 350.0},
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["guidance_level"] is not None
+
+
+def test_calibration_adult_accepted(client: TestClient) -> None:
+    """Adult can submit calibration without guardian consent."""
+    user_id = "cal_adult"
+
+    client.post("/v1/assessment/consent", json={"user_id": user_id})
+    _setup_profile(client, user_id, "adult_31_60")
+
+    response = client.post(
+        f"/v1/assessment/onboarding/calibration/{user_id}?user_id={user_id}",
+        json={"accuracy": 0.8, "mean_rt_ms": 350.0},
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["guidance_level"] is not None
+
+
+def test_guidance_level_survives_final_put(client: TestClient) -> None:
+    """A final PUT without guidance_level does not overwrite calibrated guidance_level."""
+    user_id = "surviving_guidance_user"
+
+    # 1. User consents
+    client.post("/v1/assessment/consent", json={"user_id": user_id})
+
+    # 2. Initial profile saved at entry of step 6 (no guidance_level yet)
+    initial_put_resp = client.put(
+        f"/v1/assessment/onboarding/profile/{user_id}?user_id={user_id}",
+        json={
+            "age_group": "adult_31_60",
+            "goals": ["improve_focus"],
+            "tech_comfort": "comfortable",
+            "info_style": "detailed",
+            "layout": "dashboard",
+            "theme": "standard",
+        },
+    )
+    assert initial_put_resp.status_code == 200
+    assert initial_put_resp.json()["guidance_level"] is None
+
+    # 3. Calibration submitted during step 6
+    cal_resp = client.post(
+        f"/v1/assessment/onboarding/calibration/{user_id}?user_id={user_id}",
+        json={"accuracy": 0.8, "mean_rt_ms": 350.0},
+    )
+    assert cal_resp.status_code == 200
+    cal_guidance = cal_resp.json()["guidance_level"]
+    assert cal_guidance is not None
+
+    # 4. Final PUT at step 7 without guidance_level (guidance_level=None)
+    final_put_resp = client.put(
+        f"/v1/assessment/onboarding/profile/{user_id}?user_id={user_id}",
+        json={
+            "age_group": "adult_31_60",
+            "goals": ["improve_focus"],
+            "tech_comfort": "comfortable",
+            "info_style": "detailed",
+            "layout": "dashboard",
+            "theme": "standard",
+        },
+    )
+    assert final_put_resp.status_code == 200
+    assert final_put_resp.json()["guidance_level"] == cal_guidance
+
+    # 5. GET confirms guidance_level persisted
+    get_resp = client.get(
+        f"/v1/assessment/onboarding/profile/{user_id}?user_id={user_id}",
+    )
+    assert get_resp.status_code == 200
+    assert get_resp.json()["guidance_level"] == cal_guidance
