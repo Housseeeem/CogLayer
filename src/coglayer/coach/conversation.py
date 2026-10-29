@@ -14,6 +14,7 @@ from collections import defaultdict
 from datetime import UTC, datetime
 from typing import Final
 
+from coglayer.core.adaptation import CoachAdaptationConfig
 from coglayer.core.brain_twin import BrainTwinSignal
 from coglayer.core.models import (
     CoachConversation,
@@ -91,6 +92,7 @@ class ConversationService:
         settings: Settings | None,
         *,
         brain_twin_signal: BrainTwinSignal | None = None,
+        adaptation: CoachAdaptationConfig | None = None,
     ) -> CoachMessage:
         """Add a user message and generate an assistant response.
 
@@ -101,6 +103,7 @@ class ConversationService:
             provider: Optional LLM provider.
             settings: Optional application settings.
             brain_twin_signal: Optional Brain Twin signal.
+            adaptation: Optional coach adaptation settings (e.g. for age group).
 
         Returns:
             The assistant's response message.
@@ -112,41 +115,54 @@ class ConversationService:
             content=user_message,
             timestamp=datetime.now(UTC),
         )
-        if settings is not None and settings.store_conversations:
+        should_store = (
+            settings is not None
+            and settings.store_conversations
+            and (adaptation is None or adaptation.store_conversation)
+        )
+        if should_store:
             self._repo.save_message(user_msg)
         else:
             self._store_in_memory(user_msg)
 
-        # Build context from profile and conversation history
-        context = self._build_context(conversation_id, profile, brain_twin_signal, settings)
-
-        # Generate response using existing coach logic
-        prompt = f"{_LLM_INSTRUCTION}\n\n{context}"
-
-        if settings is not None and not settings.coach_use_llm:
-            _log.warning("LLM is disabled; returning safe fallback message")
-            response_text = _FALLBACK_MESSAGE
-        elif provider is None:
-            _log.warning("No LLM provider available; returning safe fallback message")
-            response_text = _FALLBACK_MESSAGE
+        if adaptation is not None and not adaptation.allow_free_chat:
+            # Child mode: strictly no LLM call, predefined response
+            response_text = adaptation.get_predefined_reply(user_message)
         else:
-            try:
-                llm_response = provider.complete(LLMRequest(prompt=prompt))
-                raw_text = llm_response.text
-                # Validate against safety rules
-                validated = self._validate_response(raw_text)
-                if validated is None:
-                    _log.warning("LLM response failed validation; returning safe fallback message")
-                    response_text = _FALLBACK_MESSAGE
-                else:
-                    response_text = validated
-            except Exception:
-                _log.warning("LLM provider raised an exception; returning safe fallback message")
-                response_text = _FALLBACK_MESSAGE
+            # Build context from profile and conversation history
+            context = self._build_context(conversation_id, profile, brain_twin_signal, settings)
 
-        # Ensure disclaimer is present for valid LLM responses only
-        if response_text != _FALLBACK_MESSAGE and _DISCLAIMER not in response_text:
-            response_text = f"{response_text}\n\n{_DISCLAIMER}"
+            system_instruction = adaptation.system_prompt if adaptation else _LLM_INSTRUCTION
+            prompt = f"{system_instruction}\n\n{context}"
+
+            if settings is not None and not settings.coach_use_llm:
+                _log.warning("LLM is disabled; returning safe fallback message")
+                response_text = _FALLBACK_MESSAGE
+            elif provider is None:
+                _log.warning("No LLM provider available; returning safe fallback message")
+                response_text = _FALLBACK_MESSAGE
+            else:
+                try:
+                    llm_response = provider.complete(LLMRequest(prompt=prompt))
+                    raw_text = llm_response.text
+                    # Validate against safety rules
+                    validated = self._validate_response(raw_text, instruction=system_instruction)
+                    if validated is None:
+                        _log.warning(
+                            "LLM response failed validation; returning safe fallback message"
+                        )
+                        response_text = _FALLBACK_MESSAGE
+                    else:
+                        response_text = validated
+                except Exception:
+                    _log.warning(
+                        "LLM provider raised an exception; returning safe fallback message"
+                    )
+                    response_text = _FALLBACK_MESSAGE
+
+            # Ensure disclaimer is present for valid LLM responses only
+            if response_text != _FALLBACK_MESSAGE and _DISCLAIMER not in response_text:
+                response_text = f"{response_text}\n\n{_DISCLAIMER}"
 
         # Save assistant message
         assistant_msg = CoachMessage(
@@ -155,7 +171,7 @@ class ConversationService:
             content=response_text,
             timestamp=datetime.now(UTC),
         )
-        if settings is not None and settings.store_conversations:
+        if should_store:
             self._repo.save_message(assistant_msg)
         else:
             self._store_in_memory(assistant_msg)
@@ -209,11 +225,16 @@ class ConversationService:
 
         return f"{history_text}{profile_summary}"
 
-    def _validate_response(self, response: str) -> str | None:
+    def _validate_response(
+        self,
+        response: str,
+        instruction: str = _LLM_INSTRUCTION,
+    ) -> str | None:
         """Validate LLM response against safety rules.
 
         Args:
             response: Raw LLM response.
+            instruction: Instruction prompt to check for echo.
 
         Returns:
             Validated response or None if validation fails.
@@ -226,7 +247,7 @@ class ConversationService:
         if FORBIDDEN_WORDS_PATTERN.search(stripped):
             return None
         # Check for instruction echo
-        if _LLM_INSTRUCTION.strip().lower() in stripped.lower():
+        if instruction.strip().lower() in stripped.lower():
             return None
         return stripped
 

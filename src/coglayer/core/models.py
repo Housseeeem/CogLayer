@@ -360,6 +360,14 @@ class ConsentRecord(BaseModel):
 # ---------------------------------------------------------------------------
 
 
+class GuidanceLevel(StrEnum):
+    """Level of guidance and scaffolding."""
+
+    MORE = "more"
+    SOME = "some"
+    MINIMAL = "minimal"
+
+
 class AdaptiveRecommendationCriteria(BaseModel):
     """Explicit parameters used to generate a deterministic daily activity plan."""
 
@@ -371,6 +379,7 @@ class AdaptiveRecommendationCriteria(BaseModel):
     excluded_task_ids: list[str] = Field(default_factory=list)
     plan_date: str | None = None
     subjective_feedback: str | None = None
+    guidance_level: GuidanceLevel | None = None
 
     @field_validator("plan_date")
     @classmethod
@@ -499,14 +508,6 @@ class ThemeType(StrEnum):
     HIGH_CONTRAST = "high_contrast"
     SOFTER_COLORS = "softer_colors"
     BRIGHTER_COLORS = "brighter_colors"
-
-
-class GuidanceLevel(StrEnum):
-    """Level of guidance and scaffolding."""
-
-    MORE = "more"
-    SOME = "some"
-    MINIMAL = "minimal"
 
 
 class ExperienceProfile(BaseModel):

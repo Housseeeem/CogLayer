@@ -32,6 +32,7 @@ from coglayer.api.deps import (
     get_consent_service,
     get_daily_plan_repo,
     get_daily_selector,
+    get_experience_profile_repo,
     get_profile_repo,
 )
 from coglayer.coach.selector import AdaptiveGameSelector
@@ -43,6 +44,7 @@ from coglayer.core.models import (
 from coglayer.core.protocols import (
     AssessmentRepository,
     DailyPlanRepository,
+    ExperienceProfileRepository,
     ProfileRepository,
 )
 from coglayer.privacy.consent import ConsentService
@@ -178,6 +180,7 @@ def get_daily_plan(
     daily_plan_repo: Annotated[DailyPlanRepository, Depends(get_daily_plan_repo)],
     assessment_repo: Annotated[AssessmentRepository, Depends(get_assessment_repo)],
     profile_repo: Annotated[ProfileRepository, Depends(get_profile_repo)],
+    onboarding_repo: Annotated[ExperienceProfileRepository, Depends(get_experience_profile_repo)],
     daily_selector: Annotated[AdaptiveGameSelector, Depends(get_daily_selector)],
     request: Request,
     plan_date: str | None = Query(default=None),
@@ -250,12 +253,16 @@ def get_daily_plan(
             else:
                 session_to_link = existing_plan.session_id
 
+    profile_exp = onboarding_repo.get_profile(user_id)
+    guidance_level = profile_exp.guidance_level if profile_exp is not None else None
+
     criteria = AdaptiveRecommendationCriteria(
         user_id=user_id,
         session_id=session_to_link,
         plan_date=effective_date,
         target_game_count=target_game_count,
         subjective_feedback=subjective_feedback,
+        guidance_level=guidance_level,
     )
 
     plan = daily_selector.select_daily_plan(

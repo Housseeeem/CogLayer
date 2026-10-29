@@ -168,6 +168,7 @@ class CognitiveCoach:
         settings: Settings | None = None,
         *,
         brain_twin_signal: BrainTwinSignal | None = None,
+        instruction: str | None = None,
     ) -> str:
         """Generate coaching feedback from the profile.
 
@@ -189,6 +190,10 @@ class CognitiveCoach:
             Optional LLM provider (FakeProvider in tests).
         settings :
             Optional application settings (coach_use_llm flag).
+        brain_twin_signal :
+            Optional Brain Twin baseline signal.
+        instruction :
+            Optional customized system instruction (e.g. from experience profile).
 
         Returns
         -------
@@ -203,8 +208,9 @@ class CognitiveCoach:
         if provider is None:
             return local_text
 
+        system_instruction = instruction if instruction is not None else _LLM_INSTRUCTION
         # Build the LLM prompt — only the local text, never the profile object
-        prompt = f"{_LLM_INSTRUCTION}\n\n{local_text}"
+        prompt = f"{system_instruction}\n\n{local_text}"
 
         try:
             llm_response = provider.complete(LLMRequest(prompt=prompt))
@@ -214,7 +220,7 @@ class CognitiveCoach:
             return local_text
 
         # Validate LLM output against clinical words, length, and instruction echo
-        validated = validate_llm_reply(raw_text, instruction=_LLM_INSTRUCTION)
+        validated = validate_llm_reply(raw_text, instruction=system_instruction)
         if validated is None:
             _log.warning("LLM response failed validation; falling back to local text")
             return local_text
