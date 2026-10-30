@@ -14,6 +14,12 @@ import streamlit as st
 def render_coach_page(api_url: str, user_id: str) -> None:
     """Render the cognitive coach chat page."""
     st.header("Supportive Cognitive Coach")
+    st.markdown(
+        '<div class="cog-coach-intro"><strong>A moment to reflect.</strong>'
+        "<p>Notice what happened, make room for uncertainty, and choose one useful next step."
+        " Your pace. Your journey.</p></div>",
+        unsafe_allow_html=True,
+    )
 
     # Initialize conversation state
     if "conversation_id" not in st.session_state:

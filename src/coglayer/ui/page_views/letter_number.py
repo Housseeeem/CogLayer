@@ -14,6 +14,8 @@ import httpx
 import streamlit as st
 import streamlit.components.v1 as components
 
+from coglayer.ui.design import activity_frame_html
+
 
 def render_letter_number_page(api_url: str, user_id: str, session_id: str) -> None:
     """Render Letter-Number Sequencing interactive cognitive task page."""
@@ -347,7 +349,7 @@ def render_letter_number_page(api_url: str, user_id: str, session_id: str) -> No
     </html>
     """
 
-    components.html(html_code, height=560)
+    components.html(activity_frame_html(html_code), height=560)
 
     col1, _ = st.columns([2, 3])
     with col1:
