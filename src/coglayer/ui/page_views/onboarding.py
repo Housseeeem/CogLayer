@@ -29,6 +29,7 @@ from coglayer.core.models import (
     ThemeType,
 )
 from coglayer.ui.api import create_assessment_session
+from coglayer.ui.design import activity_frame_html
 
 # ---------------------------------------------------------------------------
 # Calibration parameters (matches onboarding.calibration.CALIBRATION_N_TRIALS)
@@ -626,7 +627,7 @@ def _render_step_calibration(api_url: str, user_id: str) -> None:
             user_id=user_id,
             session_id=session_id,
         )
-        components.html(html_code, height=520)
+        components.html(activity_frame_html(html_code), height=520)
 
         col_check, _, _ = st.columns([2, 2, 2])
         with col_check:

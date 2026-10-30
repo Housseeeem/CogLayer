@@ -13,6 +13,8 @@ import httpx
 import streamlit as st
 import streamlit.components.v1 as components
 
+from coglayer.ui.design import activity_frame_html
+
 
 def render_corsi_blocks_page(api_url: str, user_id: str, session_id: str) -> None:
     """Render Corsi Blocks interactive cognitive task page."""
@@ -384,7 +386,7 @@ def render_corsi_blocks_page(api_url: str, user_id: str, session_id: str) -> Non
     </html>
     """
 
-    components.html(html_code, height=560)
+    components.html(activity_frame_html(html_code), height=560)
 
     col1, _ = st.columns([2, 3])
     with col1:

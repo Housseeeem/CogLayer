@@ -12,6 +12,7 @@ from coglayer.ui.api import (
     get_daily_plan,
     update_daily_plan_status,
 )
+from coglayer.ui.design import activity_card_html, lab_hero_html
 
 # Each entry: (task_id, label, emoji, description, focus, page_key | None)
 # page_key is the app.py dispatch key; None means no interactive page yet.
@@ -181,7 +182,7 @@ def render_cognitive_lab_page(
             st.warning("Start or resume an assessment session before opening an activity.")
         return
 
-    with st.container(border=True):
+    with st.container(border=True, key="cog_daily_plan"):
         st.subheader("Daily recommended session")
         try:
             force_regen = bool(st.session_state.pop("force_regenerate_daily_plan", False))
@@ -221,6 +222,18 @@ def render_cognitive_lab_page(
         recs = plan.get("recommendations", [])
         if not isinstance(recs, list):
             recs = []
+        recommended_ids = {
+            rec["task_id"]
+            for rec in recs
+            if isinstance(rec, dict) and isinstance(rec.get("task_id"), str) and rec["task_id"]
+        }
+        st.markdown(
+            lab_hero_html(
+                completed=len(completed_ids & recommended_ids),
+                total=len(recommended_ids),
+            ),
+            unsafe_allow_html=True,
+        )
         cols = st.columns(len(recs)) if recs else []
         plan_status = plan.get("status", "generated")
         for idx, rec in enumerate(recs):
@@ -237,14 +250,22 @@ def render_cognitive_lab_page(
 
             card_info = _CARD_BY_ID.get(task_id)
             label = card_info[1] if card_info else task_id
-            emoji = card_info[2] if card_info else "🎯"
+            description = card_info[3] if card_info else "Explore this recommended activity."
             page_key = card_info[5] if card_info else task_id
             display_state = _recommendation_display_state(plan_status, task_id in completed_ids)
 
             with cols[idx]:
-                with st.container(border=True):
-                    st.markdown(f"**{emoji} {label}**")
-                    st.caption(f"Domain: {dim} · Level: {diff}")
+                with st.container(border=True, key=f"cog_activity_{task_id}"):
+                    st.markdown(
+                        activity_card_html(
+                            task_id=task_id,
+                            label=label,
+                            dimension=dim,
+                            level=diff,
+                            description=description,
+                        ),
+                        unsafe_allow_html=True,
+                    )
                     if display_state == "completed":
                         st.caption("Status: completed")
                     elif display_state == "in_progress":

@@ -68,6 +68,14 @@ The core also exposes a transparent exponential moving-average baseline in
 `coglayer.core.brain_twin`; it reports variation signals only after sufficient
 comparable observations are available.
 
+The Streamlit workspace uses the approved frontend concept's dark navigation,
+light surfaces, pastel activity cards, and daily-plan hero. Plan completion and
+profile intervals come from the assessment API; no prototype fixtures are loaded.
+The shared skin also styles activity surroundings while preserving their stimulus
+colors, task scripts, and timing. Existing onboarding display preferences still
+apply. The local stylesheet is bundled in `coglayer/ui/assets/design.css`, and
+`.streamlit/config.toml` sets the native widget palette and disables usage telemetry.
+
 ## License
 
 TBD

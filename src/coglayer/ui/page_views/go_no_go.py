@@ -12,6 +12,8 @@ import httpx
 import streamlit as st
 import streamlit.components.v1 as components
 
+from coglayer.ui.design import activity_frame_html
+
 
 def render_go_no_go_page(api_url: str, user_id: str, session_id: str) -> None:
     """Render Go/No-Go interactive task page."""
@@ -267,7 +269,7 @@ def render_go_no_go_page(api_url: str, user_id: str, session_id: str) -> None:
     </html>
     """
 
-    components.html(html_code, height=520)
+    components.html(activity_frame_html(html_code), height=520)
 
     # Polling / continuation control
     col1, _ = st.columns([2, 3])

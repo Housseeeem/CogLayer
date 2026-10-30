@@ -11,6 +11,8 @@ from __future__ import annotations
 import httpx
 import streamlit as st
 
+from coglayer.ui.design import interval_bar_html
+
 
 def format_observations(n_sessions: int) -> str:
     """Format observations label to clearly state it counts sessions, not individual trials."""
@@ -60,7 +62,7 @@ def render_profile_page(api_url: str, user_id: str, *, heading: bool = True) -> 
     if len(dimensions) > 1:
         st.warning("⚠️ different measurement scales — dimensions are not directly comparable")
 
-    cols = st.columns(len(dimensions))
+    cols = st.columns(min(2, len(dimensions)))
     for i, (dim_name, est) in enumerate(dimensions.items()):
         mean_pct = round(est["mean"] * 100)
         n_obs = est.get("n_evidence", 1)
@@ -70,15 +72,20 @@ def render_profile_page(api_url: str, user_id: str, *, heading: bool = True) -> 
 
         pretty_name = dim_name.replace("_", " ").title()
 
-        with cols[i]:
-            st.subheader(pretty_name)
-            st.metric(
-                label="Uncertainty (90% CI)",
-                value=format_uncertainty_interval(est["lower"], est["upper"]),
-            )
-            st.caption(f"Posterior Mean: **{mean_pct}%**")
-            st.caption(f"Observations (completed sessions): **{format_observations(n_obs)}**")
-            st.caption(f"Data Completeness: **{comp_pct}%**")
+        with cols[i % len(cols)]:
+            with st.container(border=True, key=f"cog_dimension_{dim_name}"):
+                st.subheader(pretty_name)
+                st.metric(
+                    label="Uncertainty (90% CI)",
+                    value=format_uncertainty_interval(est["lower"], est["upper"]),
+                )
+                st.markdown(
+                    interval_bar_html(lower=est["lower"], upper=est["upper"], mean=est["mean"]),
+                    unsafe_allow_html=True,
+                )
+                st.caption(f"Posterior Mean: **{mean_pct}%**")
+                st.caption(f"Observations (completed sessions): **{format_observations(n_obs)}**")
+                st.caption(f"Data Completeness: **{comp_pct}%**")
 
     st.divider()
 

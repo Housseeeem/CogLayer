@@ -21,6 +21,14 @@ from coglayer.ui.api import (
     get_assessment_sessions,
     get_decision,
 )
+from coglayer.ui.design import (
+    brand_html,
+    design_css,
+    footer_html,
+    sidebar_note_html,
+    theme_overrides,
+    workspace_header_html,
+)
 from coglayer.ui.navigation import navigate_decision
 from coglayer.ui.page_views.coach import render_coach_page
 from coglayer.ui.page_views.cognitive_lab import render_cognitive_lab_page
@@ -252,7 +260,10 @@ def _apply_user_theme(api_url: str, user_id: str) -> None:
                 theme_str = profile_data.get("theme")
                 css = get_theme_css(theme_str)
                 if css:
-                    st.markdown(f"<style>{css}</style>", unsafe_allow_html=True)
+                    st.markdown(
+                        f"<style>{css}{theme_overrides(theme_str)}</style>",
+                        unsafe_allow_html=True,
+                    )
     except (httpx.HTTPError, ValueError):
         pass
 
@@ -261,8 +272,9 @@ def main() -> None:
     st.set_page_config(
         page_title="CogLayer Cognitive Coaching",
         page_icon="🧠",
-        layout="centered",
+        layout="wide",
     )
+    st.markdown(f"<style>{design_css()}</style>", unsafe_allow_html=True)
 
     # Initialize session state variables
     if "user_id" not in st.session_state:
@@ -280,7 +292,7 @@ def main() -> None:
 
     # Sidebar controls
     with st.sidebar:
-        st.title("🧠 CogLayer")
+        st.markdown(brand_html(), unsafe_allow_html=True)
         st.caption("Non-clinical Cognitive Coaching")
 
         user_input = st.text_input("User ID", value=st.session_state["user_id"])
@@ -304,6 +316,7 @@ def main() -> None:
         st.divider()
         if st.button("New Assessment Session"):
             _create_new_session(st.session_state["user_id"])
+        st.markdown(sidebar_note_html(), unsafe_allow_html=True)
 
     user_id = st.session_state["user_id"]
     if (
@@ -320,6 +333,9 @@ def main() -> None:
     session_id = st.session_state.get("session_id", "")
     if isinstance(session_id, str) and session_id:
         _set_session_query_param(session_id)
+
+    page_label = _SIDEBAR_LABELS[_sidebar_selection_for(page)].partition(". ")[2]
+    st.markdown(workspace_header_html(page_label), unsafe_allow_html=True)
 
     # Page dispatch
     if page == "consent":
@@ -352,6 +368,8 @@ def main() -> None:
         render_ioi_page(API_URL, user_id, session_id)
     else:
         render_consent_page(API_URL, user_id)
+
+    st.markdown(footer_html(), unsafe_allow_html=True)
 
 
 def _route_decision(decision: Mapping[str, object]) -> None:
