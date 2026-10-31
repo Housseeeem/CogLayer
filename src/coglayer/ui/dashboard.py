@@ -393,6 +393,176 @@ def build_progress_curve_data(profile: dict[str, Any]) -> list[dict[str, Any]]:
     return rows
 
 
+def build_heatmap_data(
+    evidence_history: list[dict[str, Any]],
+) -> tuple[list[str], list[str], list[dict[str, Any]]]:
+    """Compute per-session, per-dimension mean outcomes from raw evidence history.
+
+    Returns:
+        dimensions: sorted list of unique dimension ids present in the data.
+        session_labels: session labels "1", "2", ... ordered by the oldest timestamp
+            seen for each session_id.
+        rows: list of dicts with keys dimension, session_label, mean_outcome (float in
+            [0, 1]), task_ids (list[str]) - one row per (dimension, session) pair that
+            has at least one valid outcome.  Entries without a session_id or without a
+            numeric outcome are silently ignored.  Does not depend on Streamlit or
+            Altair.
+    """
+    # --- 1. Gather valid entries -------------------------------------------------
+    valid: list[dict[str, Any]] = []
+    for ev in evidence_history:
+        if not isinstance(ev, dict):
+            continue
+        session_id = ev.get("session_id")
+        if not session_id or not str(session_id).strip():
+            continue
+        try:
+            outcome = float(ev["outcome"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        dim = str(ev.get("dimension", "")).strip()
+        if not dim:
+            continue
+        valid.append(
+            {
+                "session_id": str(session_id),
+                "dimension": dim,
+                "outcome": outcome,
+                "task_id": str(ev.get("task_id", "")),
+                "timestamp": str(ev.get("timestamp", "")),
+            }
+        )
+
+    if not valid:
+        return [], [], []
+
+    # --- 2. Determine session order (chronological by oldest timestamp per session_id) ---
+    session_first_ts: dict[str, str] = {}
+    for ev in valid:
+        sid = ev["session_id"]
+        ts = ev["timestamp"]
+        if sid not in session_first_ts or ts < session_first_ts[sid]:
+            session_first_ts[sid] = ts
+
+    ordered_sessions = sorted(session_first_ts.keys(), key=lambda s: session_first_ts[s])
+    session_label_map = {sid: str(i + 1) for i, sid in enumerate(ordered_sessions)}
+    session_labels = [session_label_map[sid] for sid in ordered_sessions]
+
+    # --- 3. Aggregate per (session_label, dimension) ---
+    cell_outcomes: dict[tuple[str, str], list[float]] = {}
+    cell_tasks: dict[tuple[str, str], list[str]] = {}
+    for ev in valid:
+        key = (session_label_map[ev["session_id"]], ev["dimension"])
+        cell_outcomes.setdefault(key, []).append(ev["outcome"])
+        if ev["task_id"]:
+            tasks = cell_tasks.setdefault(key, [])
+            if ev["task_id"] not in tasks:
+                tasks.append(ev["task_id"])
+
+    dimensions = sorted({ev["dimension"] for ev in valid})
+
+    rows: list[dict[str, Any]] = []
+    for dim in dimensions:
+        for label in session_labels:
+            key = (label, dim)
+            if key in cell_outcomes:
+                mean_val = sum(cell_outcomes[key]) / len(cell_outcomes[key])
+                rows.append(
+                    {
+                        "dimension": dim,
+                        "session_label": label,
+                        "mean_outcome": mean_val,
+                        "task_ids": cell_tasks.get(key, []),
+                    }
+                )
+
+    return dimensions, session_labels, rows
+
+
+def create_heatmap(
+    dimensions: list[str],
+    session_labels: list[str],
+    heatmap_rows: list[dict[str, Any]],
+) -> alt.Chart:
+    """Create an Altair heatmap of mean outcomes per (dimension x session).
+
+    Color scale is fixed [0, 1] regardless of data range.  The mean value
+    is displayed inside each cell.  Tooltip shows dimension, session, mean
+    outcome, and task ids.
+    """
+    if not heatmap_rows:
+        return cast(
+            alt.Chart,
+            alt.Chart({"values": [{"text": ""}]}).mark_text(
+                text="Complete at least one session to see the heatmap."
+            ),
+        )
+
+    # Readable dimension labels (title-case, underscore → space)
+    def _label(dim: str) -> str:
+        return dim.replace("_", " ").title()
+
+    display_rows: list[dict[str, Any]] = [
+        {
+            "Dimension": _label(r["dimension"]),
+            "Session": r["session_label"],
+            "Mean Outcome": round(r["mean_outcome"], 4),
+            "Tasks": ", ".join(r["task_ids"]) if r["task_ids"] else "—",
+        }
+        for r in heatmap_rows
+    ]
+
+    dim_display_order = [_label(d) for d in dimensions]
+
+    base = alt.Chart({"values": display_rows})
+
+    rects = base.mark_rect().encode(
+        x=alt.X(
+            "Session:O",
+            title="Session",
+            sort=session_labels,
+            axis=alt.Axis(labelAngle=0),
+        ),
+        y=alt.Y(
+            "Dimension:N",
+            title=None,
+            sort=dim_display_order,
+        ),
+        color=alt.Color(
+            "Mean Outcome:Q",
+            scale=alt.Scale(scheme="blues", domain=[0.0, 1.0], clamp=True),
+            title="Mean Outcome",
+        ),
+        tooltip=[
+            alt.Tooltip("Dimension:N", title="Dimension"),
+            alt.Tooltip("Session:O", title="Session"),
+            alt.Tooltip("Mean Outcome:Q", title="Mean Outcome", format=".2f"),
+            alt.Tooltip("Tasks:N", title="Tasks"),
+        ],
+    )
+
+    text_layer = base.mark_text(fontSize=11, fontWeight="bold").encode(
+        x=alt.X("Session:O", sort=session_labels),
+        y=alt.Y("Dimension:N", sort=dim_display_order),
+        text=alt.Text("Mean Outcome:Q", format=".2f"),
+        color=alt.condition(
+            "datum['Mean Outcome'] > 0.55",
+            alt.value("white"),
+            alt.value("#374151"),
+        ),
+    )
+
+    combined = (
+        alt.layer(rects, text_layer)
+        .properties(
+            width=max(200, len(session_labels) * 70),
+            height=max(100, len(dimensions) * 50),
+        )
+        .configure_view(strokeWidth=0)
+    )
+    return cast(alt.Chart, combined)
+
+
 def create_progress_curve(progress_rows: list[dict[str, Any]]) -> alt.Chart:
     """Create an Altair line chart showing raw outcome progress across sessions.
 

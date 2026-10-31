@@ -8,13 +8,17 @@ Requirements: Layer C Dashboard
 
 from __future__ import annotations
 
+from typing import Any
+
 import httpx
 import streamlit as st
 
 from coglayer.ui.dashboard import (
+    build_heatmap_data,
     build_history_rows,
     build_progress_curve_data,
     build_radar_rows,
+    create_heatmap,
     create_progress_curve,
     select_overview_chart,
 )
@@ -113,6 +117,17 @@ def render_dashboard_page(
         "Note: A rise on the same task can reflect practice or strategy, "
         "not necessarily a gain in ability."
     )
+
+    # Performance heatmap
+    st.subheader("Performance Heatmap")
+    evidence_history: list[dict[str, Any]] = profile.get("evidence_history", [])
+    heatmap_dims, heatmap_sessions, heatmap_rows = build_heatmap_data(evidence_history)
+    if not heatmap_rows:
+        st.info("Complete at least one session to see the heatmap.")
+    else:
+        heatmap_chart = create_heatmap(heatmap_dims, heatmap_sessions, heatmap_rows)
+        st.altair_chart(heatmap_chart, use_container_width=True)
+        st.caption("Dimensions use different measurement scales and are not directly comparable.")
 
     st.divider()
 
