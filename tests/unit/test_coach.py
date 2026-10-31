@@ -46,7 +46,7 @@ from coglayer.providers.fake import FakeProvider
 _TS = datetime(2024, 1, 15, 10, 0, 0, tzinfo=UTC)
 _COACH = CognitiveCoach()
 
-_DISCLAIMER = "Based on these two tasks only \u2014 not a clinical assessment."
+_DISCLAIMER = "Based on the tasks completed so far \u2014 not a clinical assessment."
 
 
 def _settings(threshold: float = 0.8) -> Settings:
@@ -664,7 +664,7 @@ def test_step3_readable_local_text_hand_derived_and_scipy() -> None:
     )
 
     # Fixed warning kept exactly
-    exact_warning = "Based on these two tasks only \u2014 not a clinical assessment."
+    exact_warning = "Based on the tasks completed so far \u2014 not a clinical assessment."
     assert exact_warning in local_text
 
     # No clinical terms from Step 2 forbidden words

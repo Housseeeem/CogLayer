@@ -59,3 +59,12 @@ docs/DEVLOG.md
 # OS
 .DS_Store
 Thumbs.db
+
+# Local AI-assistant / agent tool folders
+.agents/tasks/
+.devin/
+.windsurf/
+.cursor/
+.claude/
+.codex/
+.continue/

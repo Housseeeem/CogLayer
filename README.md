@@ -61,7 +61,7 @@ For detailed architectural principles, dependency boundaries, Bayesian models, a
 
 The **Cognitive Lab** is the primary assessment entry after informed consent.
 Visible navigation is Informed Consent, Cognitive Lab, Cognitive Profile &
-Dashboard, Cognitive Coach, then Experimental Interaction Index. The internal
+Dashboard, Cognitive Coach, then AI Collaboration Score. The internal
 Next Assessment Task route remains available to existing callers. Their results
 remain non-clinical proxies and include the existing task-level quality checks.
 The core also exposes a transparent exponential moving-average baseline in

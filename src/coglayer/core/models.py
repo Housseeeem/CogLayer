@@ -246,7 +246,7 @@ class CognitiveProfile(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# Indice Opérationnel d'Interaction (IOI)
+# AI Collaboration Score (IOI)
 # ---------------------------------------------------------------------------
 
 

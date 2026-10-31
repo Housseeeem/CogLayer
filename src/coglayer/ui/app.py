@@ -61,7 +61,7 @@ _SIDEBAR_LABELS: Mapping[str, str] = {
     "lab": "3. Cognitive Lab",
     "profile": "4. Cognitive Profile & Dashboard",
     "coach": "5. Cognitive Coach",
-    "ioi": "6. Experimental Interaction Index",
+    "ioi": "6. AI Collaboration Score",
 }
 _SIDEBAR_ALIASES: Mapping[str, str] = {
     "dashboard": "profile",

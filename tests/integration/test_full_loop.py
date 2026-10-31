@@ -266,4 +266,4 @@ def test_ac_coach_lock(tmp_path: pathlib.Path) -> None:
     c3 = client.post(f"/v1/assessment/coach/{user_id}")
     assert c3.status_code == 200
     feedback = c3.text
-    assert "Based on these two tasks only" in feedback
+    assert "Based on the tasks completed so far" in feedback

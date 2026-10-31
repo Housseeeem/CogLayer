@@ -142,7 +142,7 @@ sequenceDiagram
     UI->>API: POST /v1/assessment/ioi/events
     API->>DB: Save structured collaboration event
 
-    User->>UI: View experimental interaction index
+    User->>UI: View AI Collaboration Score
     UI->>API: GET /v1/assessment/ioi/{user_id}/score
     API->>DB: Load explicit collaboration events
     API-->>UI: Return component evidence and fixed-weight score
@@ -181,7 +181,7 @@ Data persistence is managed via SQLite in `src/coglayer/api/db/`:
   conversation text. Events are scoped to an owned session and deduplicated by
   event ID and user/component/opportunity ID.
 
-### Experimental IOI flow
+### AI Collaboration Score flow
 
 The IOI prototype is separate from cognitive assessment evidence. The
 Streamlit interaction-index page presents one explicit opportunity per
