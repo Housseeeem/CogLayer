@@ -106,7 +106,7 @@ class TestCoachConsentVerification:
             assert resp.status_code == 403
             assert resp.json()["detail"] == "User has not given active consent."
             # No feedback text in body
-            assert "Based on these two tasks only" not in resp.text
+            assert "Based on the tasks completed so far" not in resp.text
             assert "Observations:" not in resp.text
         finally:
             app.dependency_overrides.clear()
@@ -140,7 +140,7 @@ class TestCoachConsentVerification:
             assert resp.status_code == 403
             assert resp.json()["detail"] == "User has not given active consent."
             # No feedback text in body
-            assert "Based on these two tasks only" not in resp.text
+            assert "Based on the tasks completed so far" not in resp.text
             assert "Observations:" not in resp.text
         finally:
             app.dependency_overrides.clear()
@@ -201,7 +201,7 @@ class TestCoachIdentityVerification:
             )
             assert resp.status_code == 403
             # Refused, no feedback in body
-            assert "Based on these two tasks only" not in resp.text
+            assert "Based on the tasks completed so far" not in resp.text
         finally:
             app.dependency_overrides.clear()
 
@@ -232,7 +232,7 @@ class TestCoachIdentityVerification:
                 f"/v1/assessment/coach/{trusted_user}?user_id={attacker_user}",
             )
             assert resp.status_code == 403
-            assert "Based on these two tasks only" not in resp.text
+            assert "Based on the tasks completed so far" not in resp.text
         finally:
             app.dependency_overrides.clear()
 
@@ -267,7 +267,7 @@ class TestCoachNonRegression:
             json={"user_id": user_id},
         )
         assert resp.status_code == 200
-        assert "Based on these two tasks only" in resp.text
+        assert "Based on the tasks completed so far" in resp.text
         assert "Observations:" in resp.text
 
     def test_coach_succeeds_with_omitted_body_identity(self, tmp_path: pathlib.Path) -> None:
@@ -277,5 +277,5 @@ class TestCoachNonRegression:
 
         resp = client.post(f"/v1/assessment/coach/{user_id}")
         assert resp.status_code == 200
-        assert "Based on these two tasks only" in resp.text
+        assert "Based on the tasks completed so far" in resp.text
         assert "Observations:" in resp.text

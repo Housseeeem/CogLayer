@@ -1,4 +1,4 @@
-"""Pure scoring for the experimental Indice Opérationnel d'Interaction."""
+"""Pure scoring for the experimental AI Collaboration Score."""
 
 from __future__ import annotations
 

@@ -103,7 +103,7 @@ def test_add_message_and_get_response_with_fake_provider(
     assert response.role == CoachMessageRole.ASSISTANT
     assert len(response.content) > 0
     # Should return safe fallback message when provider is None
-    assert "Le service de conversation est temporairement indisponible" in response.content
+    assert "The conversation service is temporarily unavailable" in response.content
 
 
 def test_add_message_validates_response(
@@ -127,7 +127,7 @@ def test_add_message_validates_response(
 
     # Should fall back to safe message due to forbidden word
     assert "diagnosis" not in response.content.lower()
-    assert "Le service de conversation est temporairement indisponible" in response.content
+    assert "The conversation service is temporarily unavailable" in response.content
 
 
 def test_add_message_with_brain_twin_signal(
@@ -411,11 +411,11 @@ def test_fallback_when_llm_disabled(
     )
 
     # Should return safe fallback message, not context
-    assert "Le service de conversation est temporairement indisponible" in response.content
+    assert "The conversation service is temporarily unavailable" in response.content
     # Context markers should NOT be present
     assert "Recent conversation:" not in response.content
     assert "Cognitive profile summary:" not in response.content
-    assert "Based on these two tasks only" not in response.content
+    assert "Based on the tasks completed so far" not in response.content
 
 
 def test_fallback_when_provider_none(
@@ -435,7 +435,7 @@ def test_fallback_when_provider_none(
     )
 
     # Should return safe fallback message, not context
-    assert "Le service de conversation est temporairement indisponible" in response.content
+    assert "The conversation service is temporarily unavailable" in response.content
     # Context markers should NOT be present
     assert "Recent conversation:" not in response.content
     assert "Cognitive profile summary:" not in response.content
@@ -462,7 +462,7 @@ def test_fallback_when_validation_fails(
     )
 
     # Should return safe fallback message, not context
-    assert "Le service de conversation est temporairement indisponible" in response.content
+    assert "The conversation service is temporarily unavailable" in response.content
     # Context markers should NOT be present
     assert "Recent conversation:" not in response.content
     assert "Cognitive profile summary:" not in response.content
@@ -491,7 +491,7 @@ def test_fallback_when_provider_raises_exception(
     )
 
     # Should return safe fallback message, not context
-    assert "Le service de conversation est temporairement indisponible" in response.content
+    assert "The conversation service is temporarily unavailable" in response.content
     # Context markers should NOT be present
     assert "Recent conversation:" not in response.content
     assert "Cognitive profile summary:" not in response.content

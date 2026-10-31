@@ -329,7 +329,8 @@ def test_render_dashboard_page_empty_state(mock_st: MagicMock, mock_get: MagicMo
     Hand-derived:
       - Empty dimensions in profile JSON.
       - Displays friendly info prompt telling user to complete first session.
-      - Contains fixed disclaimer: 'Based on these two tasks only — not a clinical assessment.'
+      - Contains fixed disclaimer: 'Based on the tasks completed so far
+        — not a clinical assessment.'
     """
     mock_get.return_value = MagicMock(
         status_code=200, json=lambda: {"dimensions": {}, "evidence_history": []}
@@ -345,7 +346,7 @@ def test_render_dashboard_page_empty_state(mock_st: MagicMock, mock_get: MagicMo
     # Disclaimer check
     caption_calls = [call[0][0] for call in mock_st.caption.call_args_list if call[0]]
     disclaimer_found = any(
-        "Based on these two tasks only — not a clinical assessment." in text
+        "Based on the tasks completed so far — not a clinical assessment." in text
         for text in caption_calls
     )
     assert disclaimer_found
@@ -438,7 +439,7 @@ def test_render_dashboard_page_multi_session_and_non_clinical(
 
     Hand-derived:
       - 2 sessions, multi-dimension profile.
-      - Fixed disclaimer: 'Based on these two tasks only — not a clinical assessment.'
+      - Fixed disclaimer: 'Based on the tasks completed so far — not a clinical assessment.'
       - Progress curve caption mentions practice or strategy, not necessarily gain in ability.
       - Forbidden words (diagnosis, disorder, deficit, impairment, IQ, patient) must not appear.
     """
@@ -516,7 +517,7 @@ def test_render_dashboard_page_multi_session_and_non_clinical(
     combined_text = " ".join(all_rendered_text)
 
     # 1. Fixed disclaimer
-    assert "Based on these two tasks only — not a clinical assessment." in combined_text
+    assert "Based on the tasks completed so far — not a clinical assessment." in combined_text
 
     # 2. Progress curve caption mentions practice or strategy
     assert "practice" in combined_text.lower() or "strategy" in combined_text.lower()

@@ -24,7 +24,7 @@ from coglayer.ui.dashboard import (
 )
 from coglayer.ui.page_views.profile import render_profile_page
 
-DISCLAIMER_TEXT = "Based on these two tasks only — not a clinical assessment."
+DISCLAIMER_TEXT = "Based on the tasks completed so far — not a clinical assessment."
 
 
 def render_profile_dashboard_page(api_url: str, user_id: str) -> None:

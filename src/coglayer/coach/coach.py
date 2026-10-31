@@ -57,7 +57,7 @@ FORBIDDEN_WORDS_PATTERN: Final[re.Pattern[str]] = re.compile(
 )
 """Compiled regex matching any forbidden word as a whole word."""
 
-_DISCLAIMER: Final[str] = "Based on these two tasks only \u2014 not a clinical assessment."
+_DISCLAIMER: Final[str] = "Based on the tasks completed so far \u2014 not a clinical assessment."
 
 _LLM_INSTRUCTION: Final[str] = (
     "You are a supportive cognitive coach. Use the following notes to write "

@@ -38,7 +38,7 @@ _MAX_MEMORY_MESSAGES: Final[int] = 50
 """Maximum number of messages to keep in memory when storage is disabled."""
 
 _FALLBACK_MESSAGE: Final[str] = (
-    "Le service de conversation est temporairement indisponible. Veuillez réessayer plus tard."
+    "The conversation service is temporarily unavailable. Please try again later."
 )
 """Safe fallback message when LLM cannot produce a reliable response."""
 

@@ -565,7 +565,7 @@ def test_coach_fallback_when_profile_none(tmp_path: pathlib.Path) -> None:
     # Coach should regenerate with empty profile and return 200
     coach_resp = client.post(f"/v1/assessment/coach/{user_id}")
     assert coach_resp.status_code == 200
-    assert "Based on these two tasks only" in coach_resp.text
+    assert "Based on the tasks completed so far" in coach_resp.text
 
 
 def test_submit_unregistered_task_version_stores_result_without_profile_update(

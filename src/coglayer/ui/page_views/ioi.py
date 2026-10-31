@@ -47,9 +47,10 @@ _OPPORTUNITIES: tuple[tuple[str, str, str, str], ...] = (
 
 def render_ioi_page(api_url: str, user_id: str, session_id: str) -> None:
     """Render explicit opportunities and the current IOI snapshot."""
-    st.header("Experimental interaction index")
+    st.header("AI Collaboration Score")
     st.caption(
-        "This prototype records explicit choices in five interaction opportunities. "
+        "Experimental Interaction Index — This prototype records explicit choices "
+        "in five interaction opportunities. "
         "It is not a validated measure of intelligence or general AI skill."
     )
 
@@ -142,7 +143,7 @@ def _render_snapshot(snapshot: dict[str, Any]) -> None:
     status = snapshot.get("status")
     aggregate = snapshot.get("aggregate_score")
     if status == "AVAILABLE" and isinstance(aggregate, (int, float)):
-        st.metric("Aggregate IOI", f"{aggregate * 100:.1f}%")
+        st.metric("AI Collaboration Score", f"{aggregate * 100:.1f} / 100")
     else:
         st.warning("Overall score: INSUFFICIENT_EVIDENCE")
 
