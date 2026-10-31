@@ -1,165 +1,96 @@
 # Privacy and Data Handling
 
 This document describes what CogLayer actually stores, how consent works, and
-how data can be deleted.  Where the specification (`docs/SPEC.md`) describes an
-intent that has not yet been implemented in code, this is stated explicitly.
+how data can be deleted. Where the original specification described features
+not yet in code, this document describes the actual implemented behavior and
+notes planned improvements.
 
 ---
 
 ## Consent
 
-Consent is required before any session can be created.  The `ConsentService`
-(in `src/coglayer/privacy/consent.py`) provides three operations:
+Consent is required before any session can be created. The `ConsentService`
+(in `src/coglayer/privacy/consent.py`) provides operations to record, check, and
+revoke consent:
 
 - **`record_consent(user_id, guardian_consent, guardian_id)`** — creates or
-  replaces the consent record for a user.  `consented_at` is set to the current
-  UTC timestamp.  `guardian_consent` (boolean) and `guardian_id` (optional
-  string) support parental consent for minors.
-- **`revoke_consent(user_id)`** — sets `revoked_at` on the existing record.
-  If no record exists this is a no-op (idempotent).
-- **`has_consented(user_id)`** — returns `True` only if a record exists and
-  `revoked_at` is `None`.
+  replaces the consent record for a user. `consented_at` is set to the current
+  UTC timestamp. Minors require guardian consent: `guardian_consent` (boolean)
+  and `guardian_id` (optional string) are stored.
+- **`revoke_consent(user_id)`** — revokes consent by setting `revoked_at` to
+  the current timestamp. If no record exists this is a no-op (idempotent).
+- **`has_consented(user_id)`** — returns `True` only if an active record exists
+  and `revoked_at` is `None`.
 
-The `POST /v1/assessment/sessions` endpoint calls `has_consented` before
-creating a session and returns HTTP 403 if consent is absent.  Several other
-endpoints perform the same check before returning data.
-
-The consent record is stored in the `consent` table of the SQLite database
-(file path from `Settings.database_path`).  Fields: `user_id`, `consented_at`
-(ISO-8601 UTC), `revoked_at` (NULL while active), `guardian_consent` (0/1),
-`guardian_id`.
+The `POST /v1/assessment/sessions` endpoint verifies consent before
+creating a session and returns HTTP 403 if consent is missing or revoked.
 
 ---
 
 ## What is stored
 
-CogLayer persists the following categories of data.  **Assessment and profile
-data are stored as derived indicators only.  The one exception is the coaching
-conversation: its message text is stored in the `coach_messages` table (see
-"Coach conversations" below).**
+CogLayer stores data locally in a SQLite database (file path configured via
+`COGLAYER_DATABASE_PATH`, default `coglayer.db`). Assessment and profile data are
+stored as derived indicators and task metrics. Coach conversation text is
+held in memory and is persisted to SQLite **ONLY** when explicitly enabled via
+`COGLAYER_STORE_CONVERSATIONS=true` (default: `false`).
 
-### Assessment data
+The exact database tables and their contents are:
 
-Stored in the `sessions`, `trials`, `task_metrics`, and `data_quality` tables.
-
-| Category | Content |
+| Table | Content stored |
 |---|---|
-| Sessions | Session ID, user ID, start/end timestamps, status, session type, list of completed task IDs. |
-| Trials | Per-trial stimulus, expected response, actual response, reaction time, validity flag, invalidity reason.  This is structured task data (e.g., which button was pressed), not free-text conversation. |
-| Task metrics | Aggregate computed metrics per (session, task): accuracy, span lengths, reaction times, etc. |
-| Data quality | Valid trial counts, total trial counts, completeness ratio, anomaly flags. |
-
-### Cognitive profile
-
-Stored in the `profiles` table as a JSON blob (`CognitiveProfile` serialised
-via Pydantic).  Contains per-dimension:
-
-- Posterior mean and 90 % credible interval (lower, upper).
-- Number of evidence updates (`n_evidence`).
-- Timestamp of last update.
-- Internal Beta distribution parameters (α, β) for resuming the model.
-- Uncertainty estimate (upper − mean).
-
-The profile contains **derived indicators only** — not the raw user messages that
-produced those indicators.
-
-### Collaboration events (IOI)
-
-Stored in the `collaboration_events` table.  Each record captures a structured
-observation: which IOI component, which opportunity, whether the behavior was
-observed, a validity flag, and a timestamp.  No message text is stored.
-
-### Experience profile
-
-Stored in the `experience_profiles` table.  Contains onboarding answers: age
-group, goals, tech comfort level, information style, layout preference, theme
-preference, and guidance level.  Created at onboarding; updated if the user
-revisits onboarding.
-
-### Coach conversations
-
-Stored in the `coach_conversations` and `coach_messages` tables.  `coach_messages`
-stores the `content` (text) of each turn in a coaching conversation, along with
-role (`user` or `assistant`) and timestamp.
-
-**This is an exception to the "derived indicators only" rule described in
-`docs/SPEC.md` section 9.**  The SPEC states: "Raw message text stays in memory
-for the current session and is not persisted by default."  The current code does
-persist coaching conversation text.  The columns are:
-
-```sql
-coach_messages.content TEXT NOT NULL
-```
-
-This should be reviewed against the data minimization requirement before
-production deployment.
-
-### Daily plans
-
-Stored in the `daily_plans` table as a JSON blob.  Contains the generated
-task sequence for a given date, not user messages.
+| `consent` | User consent record: `user_id`, `consented_at`, `revoked_at`, `guardian_consent` (0/1), `guardian_id`. |
+| `sessions` | Assessment sessions: `session_id`, `user_id`, `created_at`, `started_at`, `completed_at`, `status`, `session_type`, `completed_tasks`. |
+| `trials` | Structured task trials: `trial_id`, `session_id`, `task_id`, `trial_index`, `stimulus`, `expected_response`, `actual_response`, `reaction_time_ms`, `is_valid`, `invalidity_reason`. No conversation text. |
+| `task_metrics` | Computed metrics per (session, task): `metric_id`, `session_id`, `task_id`, `accuracy`, `mean_reaction_time_ms`, `span_length`, `metrics_json`. |
+| `data_quality` | Task data validation records: `quality_id`, `session_id`, `task_id`, `valid_trials`, `total_trials`, `completeness_ratio`, `anomaly_flags`. |
+| `profiles` | Serialized Bayesian cognitive profile (`CognitiveProfile` JSON): `user_id`, `updated_at`, `profile_data` containing dimension posteriors (α, β, mean, 90% credible interval) and evidence history. Derived indicators only. |
+| `experience_profiles` | User onboarding preferences: `user_id`, `updated_at`, `profile_data` (age group, goals, tech comfort, information style, layout, theme, guidance level). |
+| `collaboration_events` | AI Collaboration Score observations: `event_id`, `user_id`, `session_id`, `component`, `opportunity_id`, `behavior_observed`, `is_valid`, `timestamp`. |
+| `daily_plans` | Adaptive daily task recommendations: `plan_id`, `user_id`, `plan_date`, `target_dimensions`, `tasks`, `total_estimated_duration_min`, `rationale`. |
+| `coach_conversations` | Coaching conversation metadata: `conversation_id`, `user_id`, `session_id`, `created_at`. |
+| `coach_messages` | Individual conversation turns: `message_id`, `conversation_id`, `role`, `content`, `timestamp`. **Populated only when `COGLAYER_STORE_CONVERSATIONS=true`.** When `false` (default), messages exist only in process memory during the run. |
 
 ---
 
 ## Provider boundary
 
-Providers (Gemini, Groq, Ollama) receive the conversation and a neutral
-coaching instruction.  The `CognitiveProfile` is **never sent to a provider**.
-This is enforced at the architecture level: the `api` and `ui` modules wire
-implementations to interfaces; the profile is consumed only inside `coglayer`
-itself.
+CogLayer supports the `fake` provider (deterministic local testing) and `groq`
+(cloud LLM provider). Other providers such as Gemini and Ollama are planned but
+not implemented.
+
+The LLM provider receives only the conversation text and a neutral coaching
+instruction. The `CognitiveProfile` and raw task trials are **never sent to
+an external LLM provider**.
 
 ---
 
-## Deletion
+## Retention and Deletion
 
-### API endpoint
+### Local data retention
 
-`DELETE /v1/assessment/users/{user_id}` (defined in
-`src/coglayer/api/routers/admin.py`, registered under the prefix
-`/v1/assessment`).
+Data is kept locally in the SQLite database until the user requests its deletion.
+There is currently no automatic retention purge mechanism.
 
-This endpoint calls, in order:
+### Deletion endpoint
 
-1. `assessment_repo.delete_user(user_id)` — removes all rows in `sessions`,
-   and (via `ON DELETE CASCADE`) all rows in `trials`, `task_metrics`,
-   `data_quality`, and `collaboration_events` for that user.
-2. `profile_repo.delete_user(user_id)` — removes the row in `profiles`.
-3. `consent_repo.delete_consent(user_id)` — removes the row in `consent`.
-4. `conversation_repo.delete_user(user_id)` — removes rows in
-   `coach_conversations`, and (via cascade) `coach_messages`.
-5. `experience_profile_repo.delete_user(user_id)` — removes the row in
-   `experience_profiles`.
+The user can delete all their data at any time via:
+`DELETE /v1/assessment/users/{user_id}`
 
-On success the endpoint returns HTTP 204 No Content.  The deletion is covered
-by tests in `tests/unit/test_storage.py` and `tests/unit/test_storage_property.py`.
+This endpoint completely deletes all associated rows across all 11 tables:
+1. `sessions` (and cascades to `trials`, `task_metrics`, `data_quality`, `collaboration_events`)
+2. `profiles`
+3. `consent`
+4. `coach_conversations` (and cascades to `coach_messages`)
+5. `experience_profiles`
+6. `daily_plans`
 
-### Local mode
+On success the endpoint returns HTTP 204 No Content.
 
-When using the Ollama provider, no data leaves the machine.  The SQLite database
-is a local file at the path configured in `Settings.database_path`.
+### Planned improvements
 
----
-
-## Retention policy
-
-`docs/SPEC.md` section 9 states: "default 30 days [ASSUMPTION], configurable;
-expired data is deleted automatically."
-
-**This is not implemented in the current code.**  There is no scheduled job,
-background task, cron entry, or database trigger that purges expired records.
-The `RetentionPolicy` and `Eraser` interfaces mentioned in the SPEC are not
-present in the codebase.
-
-Data persists until explicitly deleted via the `DELETE /v1/assessment/users/{id}`
-endpoint or manual database administration.
-
----
-
-## Summary of gaps relative to SPEC.md
-
-| SPEC requirement | Status in code |
-|---|---|
-| Persist derived indicators only; raw message text not stored by default (§9) | Partially implemented: coaching conversation text is persisted in `coach_messages.content`. |
-| 30-day default retention with automatic expiry (§9) | Not implemented. No purge mechanism exists. |
-| `RetentionPolicy` and `Eraser` interfaces (§5) | Not implemented. |
+- **Automatic retention purge:** A scheduled background retention cleaner to
+  automatically purge data older than a configurable retention window (e.g.,
+  30 days).
+- **Local offline LLM provider:** An Ollama provider adapter to enable coaching
+  without external network calls.

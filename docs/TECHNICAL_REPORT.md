@@ -344,12 +344,13 @@ mouse timing and accuracy as recorded by browser `performance.now()`.
 
 Three gaps exist relative to `docs/SPEC.md`:
 
-1. **30-day retention not implemented.** `docs/PRIVACY.md` states explicitly: "There is
-   no scheduled job, background task, cron entry, or database trigger that purges expired
-   records." Data persists until explicitly deleted through the endpoint above.
-2. **Coach message text stored.** The `coach_messages.content` column stores the text of
-   each coaching turn. The SPEC (section 9) states raw message text should not be
-   persisted by default. The current code deviates from this.
+1. **Automatic retention purge not implemented.** There is no scheduled job,
+   background task, cron entry, or database trigger that purges expired records.
+   Data persists locally in SQLite until explicitly deleted through the endpoint above.
+2. **Coach message text storage is configurable.** The `coach_messages.content`
+   column stores the text of each coaching turn ONLY when
+   `COGLAYER_STORE_CONVERSATIONS=true` (default: `false`). When disabled, messages
+   stay in process memory only.
 3. **Identity declared, not authenticated.** The user identifier is a string entered in
    the Streamlit sidebar. There is no authentication layer; the application has no
    mechanism to verify that the declared identity matches the person at the keyboard
