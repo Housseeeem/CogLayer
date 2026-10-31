@@ -604,3 +604,110 @@ def create_progress_curve(progress_rows: list[dict[str, Any]]) -> alt.Chart:
         .properties(width=500, height=280)
     )
     return cast(alt.Chart, chart)
+
+
+def build_goal_display_data(goals_response: dict[str, Any]) -> list[dict[str, Any]]:
+    """Process goal tracking API response into structured rows for UI display.
+
+    Returns rows with:
+    - goal: Goal text description
+    - target_dimensions: List of mapped dimensions
+    - status: 'insufficient_data', 'active', or 'completed'
+    - status_text: Non-clinical status message ('Not enough data yet', 'In progress', etc.)
+    - n_sessions: Number of observed sessions
+    - baseline: Baseline estimate in [0, 1] or None
+    - current: Current posterior mean in [0, 1] or None
+    - target: Target goal level in [0, 1] or None
+    - lower: 90% credible interval lower bound or None
+    - upper: 90% credible interval upper bound or None
+    - progress_ratio: Clamped progress ratio in [0, 1] or None
+    """
+    raw_goals = goals_response.get("goals", [])
+    if not isinstance(raw_goals, list):
+        return []
+
+    result: list[dict[str, Any]] = []
+    for g in raw_goals:
+        if not isinstance(g, dict):
+            continue
+        result.append(
+            {
+                "goal": str(g.get("goal", "")),
+                "target_dimensions": [str(d) for d in g.get("target_dimensions", [])],
+                "status": str(g.get("status", "insufficient_data")),
+                "status_text": str(g.get("status_text", "Not enough data yet")),
+                "n_sessions": int(g.get("n_sessions", 0)),
+                "baseline": float(g["baseline"]) if g.get("baseline") is not None else None,
+                "current": float(g["current"]) if g.get("current") is not None else None,
+                "target": float(g["target"]) if g.get("target") is not None else None,
+                "lower": float(g["lower"]) if g.get("lower") is not None else None,
+                "upper": float(g["upper"]) if g.get("upper") is not None else None,
+                "progress_ratio": float(g["progress_ratio"])
+                if g.get("progress_ratio") is not None
+                else None,
+            }
+        )
+    return result
+
+
+def render_goal_tracking(
+    api_url: str,
+    user_id: str,
+    *,
+    goals_data: dict[str, Any] | None = None,
+) -> None:
+    """Render the Goal Tracking section in the UI dashboard."""
+    import httpx
+    import streamlit as st
+
+    st.subheader("Goal Tracking")
+    st.caption("Based on the tasks completed so far — not a clinical assessment.")
+
+    if goals_data is None:
+        try:
+            resp = httpx.get(f"{api_url}/v1/assessment/profile/{user_id}/goals", timeout=5.0)
+            if resp.status_code == 200:
+                goals_data = resp.json()
+            elif resp.status_code == 403:
+                st.info("Consent required to view goal tracking.")
+                return
+            else:
+                st.info("Goal tracking is not available at this time.")
+                return
+        except Exception as exc:
+            st.warning(f"Could not load goal tracking: {exc}")
+            return
+
+    display_goals = build_goal_display_data(goals_data)
+    if not display_goals:
+        st.info("No personal goals selected yet. Complete onboarding to select your goals.")
+        return
+
+    for item in display_goals:
+        st.markdown(f"#### {item['goal']}")
+        dims_str = ", ".join(d.replace("_", " ").title() for d in item["target_dimensions"])
+        st.caption(f"Target dimensions: {dims_str}")
+
+        if item["status"] == "insufficient_data" or item["n_sessions"] < 3:
+            st.info("Not enough data yet")
+            st.caption(
+                f"Completed sessions: {item['n_sessions']} / 3 required "
+                "to establish baseline and track progress."
+            )
+        else:
+            baseline = item["baseline"] or 0.0
+            current = item["current"] or 0.0
+            target = item["target"] or 0.0
+            lower = item["lower"] or 0.0
+            upper = item["upper"] or 0.0
+
+            # Progress bar showing current estimate toward 100%
+            st.progress(float(min(max(current, 0.0), 1.0)))
+
+            ci_str = f"[{lower * 100:.1f}%, {upper * 100:.1f}%]"
+            st.markdown(
+                f"**Baseline:** {baseline * 100:.1f}% | "
+                f"**Current:** {current * 100:.1f}% *(90% CI: {ci_str})* | "
+                f"**Target:** {target * 100:.1f}%"
+            )
+            st.caption(f"Status: {item['status_text']} ({item['n_sessions']} sessions completed)")

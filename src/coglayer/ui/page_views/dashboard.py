@@ -20,6 +20,7 @@ from coglayer.ui.dashboard import (
     build_radar_rows,
     create_heatmap,
     create_progress_curve,
+    render_goal_tracking,
     select_overview_chart,
 )
 from coglayer.ui.page_views.profile import render_profile_page
@@ -48,6 +49,8 @@ def render_dashboard_page(
     st.caption(DISCLAIMER_TEXT)
 
     _render_brain_twin(api_url, user_id)
+    st.divider()
+    render_goal_tracking(api_url, user_id)
     st.divider()
 
     # 1. Fetch profile from API

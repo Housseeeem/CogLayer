@@ -45,6 +45,10 @@ class Settings(BaseSettings):
     groq_api_key: str | None = None
     groq_model: str = "llama-3.3-70b-versatile"
     store_conversations: bool = False
+    # Goal tracking settings
+    goal_target_delta: float = 0.10
+    goal_min_sessions: int = 3
+    goal_baseline_n_observations: int = 1
     # Quality gate: minimum Go accuracy required for go_no_go to update the profile.
     # This threshold is a design choice with no source: at least 11 correct Go out of 15 (0.7).
     go_no_go_min_go_accuracy: float = 0.7
