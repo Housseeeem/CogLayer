@@ -55,14 +55,22 @@ external service.
 
 ### Layer C — Visualise and plan
 
-The profile dashboard displays:
+The Cognitive Profile & Dashboard (screen 4) displays:
 
-- A radar chart of the four dimension means.
+- A Brain Twin Fast-Track section showing the current variation flag for comparable
+  Go/No-Go outcomes.
+- A radar chart of the four dimension means with 90 % credible interval bounds.
 - Progress curves showing how each dimension has evolved across sessions.
 - A performance heatmap: rows are the four cognitive dimensions and columns are
   sessions numbered 1, 2, … N in chronological order; each cell shows the mean
   outcome across all tasks completed in that dimension during that session.
-- A daily plan with a generated task sequence for the current date.
+- An Assessment History table listing every evidence record in reverse chronological
+  order.
+
+The Cognitive Lab (screen 3) displays a daily recommended session: 2 or 3 tasks
+selected by the `AdaptiveGameSelector` using a deterministic daily seed, history
+performance, recency prevention, Brain Twin variation signal, user preference, guidance
+level, and optional fatigue feedback.
 
 ### AI Collaboration Score (experimental)
 
@@ -125,8 +133,8 @@ Drop `--no-cov` to also produce a coverage report (85 % threshold overall,
 
 1. **Informed Consent** — displays stored data details and the local-mode guarantee; consent is required before any session is created.
 2. **Onboarding** — collects age group, goals, tech comfort, information style, layout and theme preferences; stored in the experience profile.
-3. **Cognitive Lab** — entry point for assessment sessions; lists resumable and completed sessions and allows creating a new one.
-4. **Cognitive Profile & Dashboard** — radar chart, progress curves, performance heatmap, and daily plan.
+3. **Cognitive Lab** — entry point for assessment sessions; lists resumable and completed sessions, allows creating a new one, and shows the daily recommended session (2 or 3 tasks selected by the adaptive selector for the current date).
+4. **Cognitive Profile & Dashboard** — Brain Twin variation flag, radar chart, progress curves, performance heatmap, and assessment history table.
 5. **Cognitive Coach** — multi-turn chat interface. When `coach_use_llm` is true and a provider is active, the chat is powered by the provider. Without a provider (or when `coach_use_llm` is false) every reply is the fixed fallback message "The conversation service is temporarily unavailable. Please try again later."
 6. **AI Collaboration Score** — records explicit IOI component observations and shows the current score or `INSUFFICIENT_EVIDENCE` status.
 
