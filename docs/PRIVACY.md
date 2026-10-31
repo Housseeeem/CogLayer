@@ -33,8 +33,10 @@ The consent record is stored in the `consent` table of the SQLite database
 
 ## What is stored
 
-CogLayer persists the following categories of data.  **Raw message text from
-the user's conversation with the LLM is not persisted by default.**
+CogLayer persists the following categories of data.  **Assessment and profile
+data are stored as derived indicators only.  The one exception is the coaching
+conversation: its message text is stored in the `coach_messages` table (see
+"Coach conversations" below).**
 
 ### Assessment data
 
