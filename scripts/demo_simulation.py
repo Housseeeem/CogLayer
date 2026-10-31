@@ -94,7 +94,16 @@ def generate_gng_trials(session_num: int, trial_num: int) -> list[dict[str, Any]
     base_rt = 250.0 - (session_num - 1) * 8.0
 
     go_plan = _correctness_plan(n_go, target, session_num * 1000 + 1)
-    nogo_plan = _correctness_plan(n_nogo, target, session_num * 1000 + 2)
+
+    # No-Go accuracy follows a deterministic per-session sequence
+    # (0.6, 0.6, 0.8, 0.6, 0.8, 0.8), i.e. 3, 3, 4, 3, 4, 4 correct of 5 No-Go
+    # trials. Driven by the session index (not random) so the response_inhibition
+    # curve is non-flat while every value stays strictly inside (0, 1).
+    nogo_correct_by_session = {1: 3, 2: 3, 3: 4, 4: 3, 5: 4, 6: 4}
+    nogo_n_correct = nogo_correct_by_session[session_num]
+    nogo_plan_rng = random.Random(SIMULATION_SEED + session_num * 1000 + 2)
+    nogo_plan = [True] * nogo_n_correct + [False] * (n_nogo - nogo_n_correct)
+    nogo_plan_rng.shuffle(nogo_plan)
 
     layout = ["go"] * n_go + ["nogo"] * n_nogo
     rng.shuffle(layout)
