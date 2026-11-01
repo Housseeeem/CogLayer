@@ -57,8 +57,9 @@ external service.
 
 The Cognitive Profile & Dashboard (screen 4) displays:
 
-- A Brain Twin Fast-Track section showing the current variation flag for comparable
-  Go/No-Go outcomes.
+- Goal tracking for the user's selected goals and mapped dimensions.
+- A per-dimension Brain Twin Fast-Track section showing comparable baseline states.
+- Possible-trajectory projections with uncertainty when enough observations exist.
 - A radar chart of the four dimension means with 90 % credible interval bounds.
 - Progress curves showing how each dimension has evolved across sessions.
 - A performance heatmap: rows are the four cognitive dimensions and columns are
@@ -113,8 +114,10 @@ variable).
 ### Run the demo data script
 
 The script requires a running API. It creates 6 assessment sessions for the
-synthetic user `demo_user_001` (4 tasks per session, all 8 tasks covered) and
-prints `SIMULATED DEMO DATA` with a profile summary to the console.
+synthetic user `demo_user_001` (4 comparable tasks per session), records three
+opportunities per AI Collaboration Score component, and prints
+`SIMULATED DEMO DATA` with profile, Brain Twin, possible-trajectory, and score
+summaries to the console.
 
 ```
 uv run python scripts/demo_simulation.py --api-url http://localhost:8000
@@ -149,21 +152,24 @@ Drop `--no-cov` to also produce a coverage report (85 % threshold overall,
 ## Privacy and ethics
 
 Consent is recorded before any session can be created; the API returns HTTP 403
-without it. All task measurements come from keyboard and mouse only — no camera
+without it. Consent can be revoked, and minors require guardian consent.
+All task measurements come from keyboard and mouse only — no camera
 or microphone. A `DELETE /v1/assessment/users/{user_id}` endpoint removes all
-stored data for a user across every table. Two gaps relative to the
-specification are worth noting: coaching conversation text (the content of each
-turn) is persisted in the `coach_messages` table, contrary to the spec's
-"derived indicators only" policy; and automatic 30-day data retention is not
-implemented — no purge mechanism exists, so data persists until explicitly
-deleted via the endpoint above.
+stored data for a user across every table. Coaching conversation text is kept
+in memory during sessions and persisted to SQLite ONLY when explicitly enabled
+via `COGLAYER_STORE_CONVERSATIONS=true` (default: `false`). Data is retained
+locally in SQLite until explicitly deleted via the endpoint above; an automatic
+retention purge mechanism is planned for future work.
 
 ## Known limitations
 
 - Goal tracking is not surfaced in the UI dashboard.
 - The `logical_reasoning` and `critical_thinking` dimensions appear in
-  `docs/SPEC.md` but have no task, scorer, or registry entry in the current
-  code.
+  future work specifications but have no task, scorer, or registry entry in
+  the current code.
+- Only the `fake` provider and `groq` are implemented; Gemini and Ollama
+  adapters are planned for future work.
+- The `exercises` and `sim` packages are empty stubs reserved for future work.
 - User identity is declared (a string entered in the sidebar) and is not
   authenticated; there is no authentication layer in the current codebase.
 - The coaching conversation feature has two surfaces: the one-shot feedback

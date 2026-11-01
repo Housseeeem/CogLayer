@@ -45,17 +45,26 @@ The brief does not define layers A to C. We define them as:
 - **Layer D, optional:** growth prediction first; text-based affect estimation
   and voice interaction only if time remains.
 
-## 4. Cognitive dimensions **[ASSUMPTION]**
+## 4. Cognitive dimensions
 
-| Id | Dimension | Meaning | Main evidence |
+The implemented battery covers four active dimensions across eight tasks:
+
+| Id | Dimension | Meaning | Implemented tasks |
 |---|---|---|---|
-| `working_memory` | Working memory | Holding and using several pieces of information at once | Multi-step instruction probes; failures that grow with the number of steps |
-| `logical_reasoning` | Logical reasoning | Drawing valid conclusions | Short logic problems; explanation quality |
-| `critical_thinking` | Critical thinking | Questioning and verifying claims, including the LLM's own answers | Error-spotting probes; verification behavior |
-| `cognitive_flexibility` | Cognitive flexibility | Adapting when a rule or constraint changes | Rule-switch probes |
+| `response_inhibition` | Response inhibition | Capacity to withhold a prepotent response | Go/No-Go (`go_no_go`) |
+| `sequential_visual_memory` | Sequential visual memory | Visuospatial sequence retention and recall | Sequence Span (`sequence_span`), Corsi Blocks (`corsi_blocks`) |
+| `working_memory` | Working memory | Holding and using several pieces of information at once | Digit Span (`digit_span`), N-Back (`n_back`), Letter-Number Sequencing (`letter_number_sequencing`) |
+| `cognitive_flexibility` | Cognitive flexibility | Adapting when a rule or constraint changes | Stroop (`stroop`), Perception Lab (`perception_lab`) |
 
 Dimensions are configuration, not code: adding one must not require changing
 existing modules.
+
+### Future work (planned dimensions)
+
+| Id | Dimension | Meaning | Planned evidence |
+|---|---|---|---|
+| `logical_reasoning` | Logical reasoning | Drawing valid conclusions | Short logic problems; explanation quality |
+| `critical_thinking` | Critical thinking | Questioning and verifying claims, including the LLM's own answers | Error-spotting probes; verification behavior |
 
 ## 5. Modules and interfaces
 
@@ -68,9 +77,9 @@ All interfaces are `typing.Protocol` classes in `core`.
 | `signals` | `ProbeLibrary.next_probe(context) -> Probe` | profile state, context | a micro-challenge with a checkable answer |
 | `profile` | `ProfileModel.update(evidence)` and `.estimate(dim)` | evidence | `DimensionEstimate` |
 | `coach` | `CoachPolicy.choose(state) -> Intervention` and `.feedback(outcome)` | profile state | intervention; reward update |
-| `exercises` | `ExerciseGenerator.generate(dim, level) -> Exercise` | dimension, level | validated exercise |
-| `privacy` | `ConsentStore`, `RetentionPolicy`, `Eraser` | user id | consent state; deletion |
-| `sim` | `SimulatedUser.respond(item) -> Answer` | probe or exercise | answer following a hidden true profile |
+| `exercises` | `ExerciseGenerator.generate(dim, level) -> Exercise` *(reserved for future work)* | dimension, level | validated exercise |
+| `privacy` | `ConsentStore`, `Eraser` | user id | consent state; deletion |
+| `sim` | `SimulatedUser.respond(item) -> Answer` *(reserved for future work)* | probe or exercise | answer following a hidden true profile |
 
 Core data types (pydantic):
 
@@ -122,17 +131,25 @@ Beta(1, 1).
 
 - **Consent:** explicit consent screen before any data is processed; states
   what is stored, what goes to the chosen provider, and that the tool is
-  non-clinical.
+  non-clinical. Consent can be revoked; minors require guardian consent.
 - **Minimization:** store derived indicators only (evidence items, estimates,
-  intervention outcomes). Raw message text stays in memory for the current
-  session and is not persisted by default.
+  intervention outcomes). Coach conversation text is persisted ONLY when
+  `COGLAYER_STORE_CONVERSATIONS=true` (default: false); otherwise it remains in
+  process memory only.
+- **Storage:** data is kept locally in SQLite across 11 tables (`consent`,
+  `sessions`, `trials`, `task_metrics`, `data_quality`, `profiles`,
+  `experience_profiles`, `collaboration_events`, `daily_plans`,
+  `coach_conversations`, `coach_messages`).
 - **Provider boundary:** providers receive the conversation and a neutral
-  instruction, never the profile.
-- **Retention:** default 30 days **[ASSUMPTION]**, configurable; expired data
-  is deleted automatically.
+  instruction, never the profile. Only `fake` and `groq` are implemented;
+  Gemini and Ollama are planned (not implemented).
+- **Retention:** data is kept locally in SQLite until the user deletes it via
+  `DELETE /v1/assessment/users/{user_id}`. Automatic retention purge is a
+  planned improvement.
 - **Deletion:** a "delete everything" action and API endpoint that removes all
   data for a user, covered by tests.
-- **Local mode:** an Ollama provider so that nothing leaves the machine.
+- **Local mode:** runs fully locally with the fake provider and local SQLite.
+  Local LLM execution via Ollama is planned for future work.
 - **Non-clinical wording:** disclaimer visible in the UI; vocabulary rules in
   `AGENTS.md`.
 - **No face or voice** inputs in the MVP.
@@ -165,10 +182,11 @@ complement them with a small pilot (5 to 10 volunteers) if time allows.
 
 ## 11. MVP scope
 
-In scope: two real providers (Gemini and Groq free tiers) plus Ollama and the
-fake provider, four dimensions, three to five interventions, profile
-dashboard with uncertainty, exercises with verifiers, consent and deletion,
-simulator with metrics, growth prediction as the bonus feature.
+In scope: one real provider (Groq free tier) plus the fake provider (Gemini and
+Ollama are planned, not implemented), four dimensions across eight tasks,
+coaching feedback and multi-turn chat, profile dashboard with uncertainty,
+consent and deletion, growth prediction as the bonus feature.
+The `exercises` and `sim` modules are empty stubs reserved for future work.
 
 Out of scope for the MVP: voice, emotion detection from face or voice, browser
 extension, multi-tenant hosting, mobile apps.

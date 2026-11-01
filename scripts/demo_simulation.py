@@ -5,7 +5,7 @@ Demonstrates the vertical slice flow against a running CogLayer API server:
 - User consent recording
 - Experience profile creation
 - 6 assessment sessions with 4 tasks each (one per dimension)
-- Profile update, Brain Twin, and daily plan
+- Profile update, per-dimension Brain Twin, possible trajectory, IOI score, and daily plan
 
 Requirements: R-009.1, R-009.2, R-009.3
 """
@@ -22,6 +22,15 @@ import httpx
 
 USER_ID = "demo_user_001"
 SIMULATION_SEED = 42
+SESSION_TASKS = [["go_no_go", "sequence_span", "digit_span", "stroop"] for _ in range(6)]
+IOI_DEFINITIONS = [
+    ("critical_verification", "verification_opportunity"),
+    ("clarification", "clarification_opportunity"),
+    ("iteration", "iteration_opportunity"),
+    ("autonomy", "autonomy_opportunity"),
+    ("responsible_usage", "responsible_usage_opportunity"),
+]
+NOGO_CORRECT_BY_SESSION = {1: 3, 2: 3, 3: 4, 4: 3, 5: 1, 6: 4}
 
 
 def _session_target(session_num: int) -> float:
@@ -95,12 +104,9 @@ def generate_gng_trials(session_num: int, trial_num: int) -> list[dict[str, Any]
 
     go_plan = _correctness_plan(n_go, target, session_num * 1000 + 1)
 
-    # No-Go accuracy follows a deterministic per-session sequence
-    # (0.6, 0.6, 0.8, 0.6, 0.8, 0.8), i.e. 3, 3, 4, 3, 4, 4 correct of 5 No-Go
-    # trials. Driven by the session index (not random) so the response_inhibition
-    # curve is non-flat while every value stays strictly inside (0, 1).
-    nogo_correct_by_session = {1: 3, 2: 3, 3: 4, 4: 3, 5: 4, 6: 4}
-    nogo_n_correct = nogo_correct_by_session[session_num]
+    # The fifth session is a deliberate dip so the per-dimension Brain Twin
+    # has a clear variation to review rather than a determination of its cause.
+    nogo_n_correct = NOGO_CORRECT_BY_SESSION[session_num]
     nogo_plan_rng = random.Random(SIMULATION_SEED + session_num * 1000 + 2)
     nogo_plan = [True] * nogo_n_correct + [False] * (n_nogo - nogo_n_correct)
     nogo_plan_rng.shuffle(nogo_plan)
@@ -444,7 +450,7 @@ def run_simulation(api_url: str) -> None:
     print_section("SIMULATED DEMO DATA FOR COGLAYER")
     print(f"  API Base URL: {api_url}")
     print(f"  Synthetic User: {USER_ID}")
-    print("  Sessions: 6 (4 tasks per session, covering all 8 tasks)")
+    print("  Sessions: 6 (4 stable tasks per session, one per dimension)")
     print("  Dimensions: response_inhibition, sequential_visual_memory,")
     print("               working_memory, cognitive_flexibility")
 
@@ -482,26 +488,8 @@ def run_simulation(api_url: str) -> None:
         sys.exit(1)
     print("  Experience profile created: age=adult_31_60, goal=Improve work focus")
 
-    # 3. Create 6 sessions with 4 tasks each
-    # Task rotation per session (one task per dimension per session, all 8 tasks
-    # used across the 6 sessions):
-    # - Session 1: go_no_go, sequence_span, digit_span, stroop
-    # - Session 2: go_no_go, corsi_blocks, n_back, perception_lab
-    # - Session 3: go_no_go, sequence_span, letter_number_sequencing, stroop
-    # - Session 4: go_no_go, corsi_blocks, digit_span, perception_lab
-    # - Session 5: go_no_go, sequence_span, n_back, stroop
-    # - Session 6: go_no_go, corsi_blocks, letter_number_sequencing, perception_lab
-
-    session_tasks = [
-        ["go_no_go", "sequence_span", "digit_span", "stroop"],
-        ["go_no_go", "corsi_blocks", "n_back", "perception_lab"],
-        ["go_no_go", "sequence_span", "letter_number_sequencing", "stroop"],
-        ["go_no_go", "corsi_blocks", "digit_span", "perception_lab"],
-        ["go_no_go", "sequence_span", "n_back", "stroop"],
-        ["go_no_go", "corsi_blocks", "letter_number_sequencing", "perception_lab"],
-    ]
-
-    for session_num, tasks in enumerate(session_tasks, start=1):
+    # 3. Create 6 sessions with one comparable task per dimension each time.
+    for session_num, tasks in enumerate(SESSION_TASKS, start=1):
         print_section(f"Step {session_num + 2}: Assessment Session {session_num}")
         sess_resp = client.post("/v1/assessment/sessions", json={"user_id": USER_ID})
         if sess_resp.status_code != 201:
@@ -586,22 +574,58 @@ def run_simulation(api_url: str) -> None:
         else:
             print(f"\n  Session {session_num} marked as completed.")
 
-    # 4. Retrieve final profile
-    print_section("Step 9: Final Cognitive Profile")
+    # 4. Record three deterministic opportunities per IOI component.
+    print_section("Step 9: AI Collaboration Score Events")
+    ioi_session_id = session_id
+    for component, event_type in IOI_DEFINITIONS:
+        for opportunity_num in range(1, 4):
+            event_resp = client.post(
+                "/v1/assessment/ioi/events",
+                json={
+                    "event_id": f"demo-{component}-{opportunity_num}",
+                    "user_id": USER_ID,
+                    "session_id": ioi_session_id,
+                    "component": component,
+                    "event_type": event_type,
+                    "opportunity_id": f"demo-{component}-opportunity-{opportunity_num}",
+                    "behavior_observed": not (
+                        component == "responsible_usage" and opportunity_num == 3
+                    ),
+                    "timestamp": datetime.now(UTC).isoformat(),
+                    "schema_version": "1.0",
+                },
+            )
+            if event_resp.status_code not in (200, 201):
+                print(f"  [Error] IOI event failed: {event_resp.text}")
+                sys.exit(1)
+    score_resp = client.get(f"/v1/assessment/ioi/{USER_ID}/score")
+    print(f"  Score status: {score_resp.json().get('status', 'N/A')}")
+    print(f"  Aggregate score: {score_resp.json().get('aggregate_score', 'N/A')}")
+
+    # 5. Retrieve final profile
+    print_section("Step 10: Final Cognitive Profile")
     prof_resp = client.get(f"/v1/assessment/profile/{USER_ID}")
     print_profile_summary(prof_resp.json())
 
-    # 5. Brain Twin
-    print_section("Step 10: Brain Twin Analysis")
+    # 6. Brain Twin
+    print_section("Step 11: Brain Twin Analysis")
     bt_resp = client.get(f"/v1/assessment/brain-twin/{USER_ID}")
     bt_data = bt_resp.json()
     print(f"  Status:            {bt_data.get('status', 'N/A')}")
     print(f"  Alpha:             {bt_data.get('alpha', 'N/A')}")
     print(f"  Sigma Multiplier:  {bt_data.get('sigma_multiplier', 'N/A')}")
     print(f"  Comparable Points: {len(bt_data.get('points', []))}")
+    for dimension, detail in bt_data.get("dimensions", {}).items():
+        print(f"  {dimension}: {detail.get('signal', {}).get('state', 'N/A')}")
 
-    # 6. Daily Plan
-    print_section("Step 11: Daily Plan")
+    # 7. Possible trajectory
+    print_section("Step 12: Possible Trajectory")
+    projection_resp = client.get(f"/v1/assessment/projection/{USER_ID}")
+    for dimension, projection in projection_resp.json().get("projections", {}).items():
+        print(f"  {dimension}: {projection.get('status', 'N/A')}")
+
+    # 8. Daily Plan
+    print_section("Step 13: Daily Plan")
     plan_resp = client.get(f"/v1/assessment/daily-plan/{USER_ID}")
     plan_data = plan_resp.json()
     print(f"  Plan Date: {plan_data.get('plan_date', 'N/A')}")
@@ -612,7 +636,7 @@ def run_simulation(api_url: str) -> None:
 
     print_section("SIMULATION COMPLETED SUCCESSFULLY")
     print("  6 sessions created, 24 task submissions, all 4 dimensions covered.")
-    print("  Profile, Brain Twin, and Daily Plan available for verification.")
+    print("  Profile, Brain Twin, possible trajectory, IOI score, and Daily Plan available.")
 
 
 def main() -> None:

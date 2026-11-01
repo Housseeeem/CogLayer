@@ -9,14 +9,21 @@ import pytest
 from coglayer.core.brain_twin import (
     BrainTwinState,
     build_brain_twin_analysis,
+    build_per_dimension_analysis,
     calculate_ema_signal,
 )
 from coglayer.core.models import Evidence
 
 
-def _evidence(outcome: float, index: int, *, task_id: str = "go_no_go") -> Evidence:
+def _evidence(
+    outcome: float,
+    index: int,
+    *,
+    task_id: str = "go_no_go",
+    dimension: str = "response_inhibition",
+) -> Evidence:
     return Evidence(
-        dimension="response_inhibition",
+        dimension=dimension,
         outcome=outcome,
         source="active",
         weight=1.0,
@@ -119,3 +126,32 @@ def test_brain_twin_signal_preserves_positional_identity_despite_identical_value
     assert "session-4" in signal.flagged_observation_id
     assert "result-4" in signal.flagged_observation_id
     assert "session-5" not in signal.flagged_observation_id
+
+
+def test_per_dimension_analysis_keeps_observations_independent() -> None:
+    response = [_evidence(0.8, index) for index in range(4)]
+    response.append(_evidence(0.1, 4))
+    working_memory = [
+        _evidence(0.6, index, task_id="digit_span", dimension="working_memory")
+        for index in range(4)
+    ]
+
+    result = build_per_dimension_analysis(response + working_memory)
+
+    assert result.dimensions["response_inhibition"].signal.state is BrainTwinState.VARIATION_FLAGGED
+    assert result.dimensions["working_memory"].signal.state is BrainTwinState.NO_VARIATION
+    assert result.dimensions["working_memory"].signal.comparable_observation_count == 4
+    assert result.dimensions["response_inhibition"].signal.flagged_observation_id is not None
+    assert "session-4" in result.dimensions["response_inhibition"].signal.flagged_observation_id
+
+
+def test_per_dimension_analysis_preserves_legacy_response_inhibition_fields() -> None:
+    evidence = [_evidence(0.8, index) for index in range(4)]
+
+    result = build_per_dimension_analysis(evidence)
+    legacy, _ = build_brain_twin_analysis(evidence)
+
+    assert result.points == legacy.points
+    assert result.status == legacy.status
+    assert result.alpha == legacy.alpha
+    assert result.sigma_multiplier == legacy.sigma_multiplier

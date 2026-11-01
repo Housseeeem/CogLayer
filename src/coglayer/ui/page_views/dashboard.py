@@ -20,6 +20,7 @@ from coglayer.ui.dashboard import (
     build_radar_rows,
     create_heatmap,
     create_progress_curve,
+    render_goal_tracking,
     select_overview_chart,
 )
 from coglayer.ui.page_views.profile import render_profile_page
@@ -49,6 +50,8 @@ def render_dashboard_page(
 
     _render_brain_twin(api_url, user_id)
     st.divider()
+    render_goal_tracking(api_url, user_id)
+    st.divider()
 
     # 1. Fetch profile from API
     try:
@@ -74,6 +77,25 @@ def render_dashboard_page(
     radar_rows = build_radar_rows(profile)
     history_rows = build_history_rows(profile)
     progress_rows = build_progress_curve_data(profile)
+    projection_rows: list[dict[str, Any]] = []
+    try:
+        projection_response = httpx.get(
+            f"{api_url}/v1/assessment/projection/{user_id}",
+            timeout=5.0,
+        )
+        if projection_response.status_code == 200:
+            projection_payload = projection_response.json()
+            for dimension, projection in projection_payload.get("projections", {}).items():
+                if projection.get("status") == "AVAILABLE":
+                    projection_rows.extend(
+                        {
+                            "dimension": dimension,
+                            **interval,
+                        }
+                        for interval in projection.get("intervals", [])
+                    )
+    except Exception as exc:
+        st.info(f"Possible trajectory is unavailable: {exc}")
 
     # Empty state check
     if not radar_rows:
@@ -111,7 +133,7 @@ def render_dashboard_page(
     if total_sessions <= 1:
         st.info("Trends require at least two completed sessions to show changes over time.")
 
-    curve_chart = create_progress_curve(progress_rows)
+    curve_chart = create_progress_curve(progress_rows, projection_rows)
     st.altair_chart(curve_chart, use_container_width=True)
     st.caption(
         "Note: A rise on the same task can reflect practice or strategy, "
@@ -152,11 +174,11 @@ def render_dashboard_page(
 
 
 def _render_brain_twin(api_url: str, user_id: str) -> None:
-    """Display the EMA status without making a clinical claim."""
+    """Display per-dimension EMA status without making a clinical claim."""
     st.subheader("Brain Twin Fast-Track")
     st.caption(
-        "A transparent baseline for comparable Go / No-Go outcomes. "
-        "A flag means variation worth reviewing, not a cause or conclusion."
+        "A transparent baseline for comparable outcomes. "
+        "A variation is worth reviewing, not a determination of its cause."
     )
     try:
         response = httpx.get(f"{api_url}/v1/assessment/brain-twin/{user_id}", timeout=5.0)
@@ -169,16 +191,22 @@ def _render_brain_twin(api_url: str, user_id: str) -> None:
         st.warning(f"Brain Twin status is unavailable: {exc}")
         return
 
-    status = result.get("status")
-    points = result.get("points", [])
-    if status != "AVAILABLE":
-        st.info("Not enough comparable observations to establish a baseline yet.")
-        return
-    flagged = [point for point in points if isinstance(point, dict) and point.get("flagged")]
-    if flagged:
-        st.warning(
-            "A recent result differs from this user's transparent baseline. "
-            "Consider reviewing the context or repeating the activity."
-        )
-    else:
-        st.success("No unusual variation was flagged in the available comparable results.")
+    dimensions = result.get("dimensions", {})
+    if not dimensions:
+        dimensions = {
+            "response_inhibition": {
+                "signal": {
+                    "state": result.get("status", "INSUFFICIENT_DATA"),
+                }
+            }
+        }
+    for dimension, detail in dimensions.items():
+        signal = detail.get("signal", {})
+        state = signal.get("state", "INSUFFICIENT_DATA")
+        label = dimension.replace("_", " ").title()
+        if state == "VARIATION_FLAGGED":
+            st.warning(f"{label}: VARIATION_FLAGGED")
+        elif state == "NO_VARIATION":
+            st.success(f"{label}: NO_VARIATION")
+        else:
+            st.info(f"{label}: INSUFFICIENT_DATA")

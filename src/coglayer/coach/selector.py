@@ -328,10 +328,12 @@ class AdaptiveGameSelector:
                 factors_used.append("subjective_fatigue_adaptation")
 
         # Brain Twin context
-        variation_flagged = False
+        flagged_dimensions: set[str] = set()
         if brain_twin_signal is not None:
             if brain_twin_signal.state is BrainTwinState.VARIATION_FLAGGED:
-                variation_flagged = True
+                flagged_dimensions.update(brain_twin_signal.flagged_dimensions)
+                if not flagged_dimensions:
+                    flagged_dimensions.add("response_inhibition")
                 factors_used.append("brain_twin_variation_adjustment")
             elif brain_twin_signal.state is BrainTwinState.NO_VARIATION:
                 factors_used.append("brain_twin_stable_baseline")
@@ -374,8 +376,8 @@ class AdaptiveGameSelector:
                 if "user_preference" not in factors_used:
                     factors_used.append("user_preference")
 
-            # Brain Twin adjustment: prioritize consolidating Go/No-Go reference
-            if variation_flagged and task_id == "go_no_go":
+            # Prioritize tasks that measure a flagged dimension.
+            if flagged_dimensions.intersection(desc.target_dimensions):
                 score += 8.0
 
             # Guidance level adaptation
@@ -440,9 +442,9 @@ class AdaptiveGameSelector:
                 difficulty = "standard"
 
             # Rationale construction
-            if variation_flagged and task_id == "go_no_go":
+            if flagged_dimensions.intersection(desc.target_dimensions):
                 rationale = (
-                    "Selected to consolidate reference measurements "
+                    "Selected to consolidate reference measurements for a flagged dimension "
                     "following an observed variation."
                 )
             elif is_fatigued:

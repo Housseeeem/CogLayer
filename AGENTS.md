@@ -38,7 +38,7 @@ Monorepo, one Python package `coglayer` with these modules:
 | Module | Responsibility |
 |---|---|
 | `core` | Domain models and interfaces (Protocols). No third-party imports except pydantic. |
-| `providers` | LLM adapters (Gemini, Groq, Ollama) and a fake provider for tests. |
+| `providers` | LLM adapters (Groq; Gemini and Ollama are planned, not implemented) and a fake provider for tests. |
 | `signals` | Passive signal extraction and active micro-probes. |
 | `profile` | Bayesian profile model. |
 | `coach` | Intervention policy (Thompson sampling bandit). |

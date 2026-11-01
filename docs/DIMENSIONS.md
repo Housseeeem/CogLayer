@@ -342,17 +342,12 @@ has not been empirically validated against population norms.
 
 ---
 
-## Not implemented
+## Future work
 
-The following dimensions appear in `docs/SPEC.md` (section 4) but have no
-task, scorer, or registry entry in the current code:
+The following dimensions are reserved for future work and have no task, scorer,
+or registry entry in the current code:
 
-| Dimension | SPEC id | Description in SPEC |
+| Dimension | SPEC id | Description |
 |---|---|---|
 | Logical reasoning | `logical_reasoning` | Drawing valid conclusions; short logic problems; explanation quality. |
 | Critical thinking | `critical_thinking` | Questioning and verifying claims, including the LLM's own answers; error-spotting probes; verification behavior. |
-
-The SPEC explicitly states that dimensions are configuration, not code, and
-that adding one must not require changing existing modules.  These two
-dimensions are listed as the four intended dimensions in the MVP (SPEC section
-4), but no task or signal extractor exists for them yet.
