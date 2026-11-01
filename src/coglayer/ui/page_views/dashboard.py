@@ -155,11 +155,11 @@ def render_dashboard_page(
 
 
 def _render_brain_twin(api_url: str, user_id: str) -> None:
-    """Display the EMA status without making a clinical claim."""
+    """Display per-dimension EMA status without making a clinical claim."""
     st.subheader("Brain Twin Fast-Track")
     st.caption(
-        "A transparent baseline for comparable Go / No-Go outcomes. "
-        "A flag means variation worth reviewing, not a cause or conclusion."
+        "A transparent baseline for comparable outcomes. "
+        "A variation is worth reviewing, not a determination of its cause."
     )
     try:
         response = httpx.get(f"{api_url}/v1/assessment/brain-twin/{user_id}", timeout=5.0)
@@ -172,16 +172,22 @@ def _render_brain_twin(api_url: str, user_id: str) -> None:
         st.warning(f"Brain Twin status is unavailable: {exc}")
         return
 
-    status = result.get("status")
-    points = result.get("points", [])
-    if status != "AVAILABLE":
-        st.info("Not enough comparable observations to establish a baseline yet.")
-        return
-    flagged = [point for point in points if isinstance(point, dict) and point.get("flagged")]
-    if flagged:
-        st.warning(
-            "A recent result differs from this user's transparent baseline. "
-            "Consider reviewing the context or repeating the activity."
-        )
-    else:
-        st.success("No unusual variation was flagged in the available comparable results.")
+    dimensions = result.get("dimensions", {})
+    if not dimensions:
+        dimensions = {
+            "response_inhibition": {
+                "signal": {
+                    "state": result.get("status", "INSUFFICIENT_DATA"),
+                }
+            }
+        }
+    for dimension, detail in dimensions.items():
+        signal = detail.get("signal", {})
+        state = signal.get("state", "INSUFFICIENT_DATA")
+        label = dimension.replace("_", " ").title()
+        if state == "VARIATION_FLAGGED":
+            st.warning(f"{label}: VARIATION_FLAGGED")
+        elif state == "NO_VARIATION":
+            st.success(f"{label}: NO_VARIATION")
+        else:
+            st.info(f"{label}: INSUFFICIENT_DATA")

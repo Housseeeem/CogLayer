@@ -291,6 +291,53 @@ def test_brain_twin_states() -> None:
     assert "reference measurement" in gng_rec.rationale.lower()
 
 
+@pytest.mark.parametrize(
+    ("dimension", "task_id"),
+    [
+        ("response_inhibition", "go_no_go"),
+        ("working_memory", "digit_span"),
+        ("cognitive_flexibility", "stroop"),
+        ("sequential_visual_memory", "sequence_span"),
+    ],
+)
+def test_brain_twin_boost_applies_to_each_flagged_dimension(
+    dimension: str,
+    task_id: str,
+) -> None:
+    selector = AdaptiveGameSelector()
+    user_id = f"user-{dimension}"
+    history = [_make_dummy_result(user_id, f"session-{index}", task_id) for index in range(2)]
+    signal = BrainTwinSignal(
+        state=BrainTwinState.VARIATION_FLAGGED,
+        comparable_observation_count=5,
+        flagged_dimensions=[dimension],
+    )
+
+    plan = selector.select_daily_plan(
+        AdaptiveRecommendationCriteria(
+            user_id=user_id,
+            target_game_count=3,
+            plan_date="2026-10-25",
+            target_dimensions=[dimension],
+        ),
+        results=history,
+        brain_twin_signal=signal,
+    )
+
+    dimension_tasks = {
+        "response_inhibition": {"go_no_go"},
+        "working_memory": {"digit_span", "n_back", "letter_number_sequencing"},
+        "cognitive_flexibility": {"stroop", "perception_lab"},
+        "sequential_visual_memory": {"sequence_span", "corsi_blocks"},
+    }
+    recommendation = next(
+        recommendation
+        for recommendation in plan.recommendations
+        if recommendation.task_id in dimension_tasks[dimension]
+    )
+    assert "flagged dimension" in recommendation.rationale.lower()
+
+
 # ---------------------------------------------------------------------------
 # 6. Absence of Coach context or absence of consent
 # ---------------------------------------------------------------------------
