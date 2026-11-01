@@ -77,6 +77,25 @@ def render_dashboard_page(
     radar_rows = build_radar_rows(profile)
     history_rows = build_history_rows(profile)
     progress_rows = build_progress_curve_data(profile)
+    projection_rows: list[dict[str, Any]] = []
+    try:
+        projection_response = httpx.get(
+            f"{api_url}/v1/assessment/projection/{user_id}",
+            timeout=5.0,
+        )
+        if projection_response.status_code == 200:
+            projection_payload = projection_response.json()
+            for dimension, projection in projection_payload.get("projections", {}).items():
+                if projection.get("status") == "AVAILABLE":
+                    projection_rows.extend(
+                        {
+                            "dimension": dimension,
+                            **interval,
+                        }
+                        for interval in projection.get("intervals", [])
+                    )
+    except Exception as exc:
+        st.info(f"Possible trajectory is unavailable: {exc}")
 
     # Empty state check
     if not radar_rows:
@@ -114,7 +133,7 @@ def render_dashboard_page(
     if total_sessions <= 1:
         st.info("Trends require at least two completed sessions to show changes over time.")
 
-    curve_chart = create_progress_curve(progress_rows)
+    curve_chart = create_progress_curve(progress_rows, projection_rows)
     st.altair_chart(curve_chart, use_container_width=True)
     st.caption(
         "Note: A rise on the same task can reflect practice or strategy, "

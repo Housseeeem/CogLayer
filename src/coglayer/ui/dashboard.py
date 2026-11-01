@@ -563,14 +563,17 @@ def create_heatmap(
     return cast(alt.Chart, combined)
 
 
-def create_progress_curve(progress_rows: list[dict[str, Any]]) -> alt.Chart:
-    """Create an Altair line chart showing raw outcome progress across sessions.
+def create_progress_curve(
+    progress_rows: list[dict[str, Any]],
+    projection_rows: list[dict[str, Any]] | None = None,
+) -> alt.Chart:
+    """Create an Altair chart showing outcomes and uncertain projections.
 
     One line per dimension, x = session index, y in [0, 1.05].
     Different color and point shape/dash per dimension, horizontal integer ticks,
     and interactive tooltips.
     """
-    if not progress_rows:
+    if not progress_rows and not projection_rows:
         empty = alt.Chart({"values": [{"text": "No data"}]}).mark_text(
             text="No assessment session history available yet."
         )
@@ -603,7 +606,33 @@ def create_progress_curve(progress_rows: list[dict[str, Any]]) -> alt.Chart:
         )
         .properties(width=500, height=280)
     )
-    return cast(alt.Chart, chart)
+    if not projection_rows:
+        return cast(alt.Chart, chart)
+
+    projection_base = alt.Chart({"values": projection_rows})
+    interval_band = projection_base.mark_area(opacity=0.18).encode(
+        x=alt.X("session_index:Q", title="Session"),
+        y=alt.Y("lower:Q", title="Outcome", scale=alt.Scale(domain=[0, 1])),
+        y2="upper:Q",
+        color=alt.Color("dimension:N", title="Dimension", scale=color_scale),
+    )
+    projection_line = projection_base.mark_line(strokeDash=[6, 4], strokeWidth=2).encode(
+        x="session_index:Q",
+        y="mean:Q",
+        color=alt.Color("dimension:N", title="Dimension", scale=color_scale),
+        detail="dimension:N",
+        tooltip=[
+            alt.Tooltip("dimension:N", title="Dimension"),
+            alt.Tooltip("session_index:Q", title="Session"),
+            alt.Tooltip("mean:Q", title="Possible trajectory (uncertain)", format=".2f"),
+        ],
+    )
+    return cast(
+        alt.Chart,
+        alt.layer(interval_band, chart, projection_line).properties(
+            title="Possible trajectory (uncertain)"
+        ),
+    )
 
 
 def build_goal_display_data(goals_response: dict[str, Any]) -> list[dict[str, Any]]:

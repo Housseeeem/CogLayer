@@ -311,6 +311,19 @@ def test_progress_curve_and_history_data() -> None:
     # Chart creation
     chart = create_progress_curve(progress_rows)
     assert chart is not None
+    projected_chart = create_progress_curve(
+        progress_rows,
+        [
+            {
+                "dimension": "response_inhibition",
+                "session_index": 3,
+                "mean": 0.9,
+                "lower": 0.8,
+                "upper": 1.0,
+            }
+        ],
+    )
+    assert "Possible trajectory (uncertain)" in projected_chart.to_json()
 
     # History rows: 4 items, most recent first
     hist_rows = build_history_rows(profile)
