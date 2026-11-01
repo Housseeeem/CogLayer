@@ -324,8 +324,7 @@ The following are persisted to the SQLite database:
   interval, evidence count, and last-update timestamp — no raw message text.
 - Collaboration events: structured IOI component observations, no message text.
 - Experience profile: onboarding answers (age group, goals, preferences).
-- Coaching conversation text: the `content` column of `coach_messages` stores the text
-  of each coaching turn. **This is an exception to the derived-indicators-only rule.**
+- Coaching conversation text: the `content` column of `coach_messages` stores the text of each coaching turn only when `COGLAYER_STORE_CONVERSATIONS=true` (default: `false`). When disabled, messages stay in process memory only.
 
 ### 7.4 Non-clinical wording
 
