@@ -57,8 +57,9 @@ external service.
 
 The Cognitive Profile & Dashboard (screen 4) displays:
 
-- A Brain Twin Fast-Track section showing the current variation flag for comparable
-  Go/No-Go outcomes.
+- Goal tracking for the user's selected goals and mapped dimensions.
+- A per-dimension Brain Twin Fast-Track section showing comparable baseline states.
+- Possible-trajectory projections with uncertainty when enough observations exist.
 - A radar chart of the four dimension means with 90 % credible interval bounds.
 - Progress curves showing how each dimension has evolved across sessions.
 - A performance heatmap: rows are the four cognitive dimensions and columns are
@@ -113,8 +114,10 @@ variable).
 ### Run the demo data script
 
 The script requires a running API. It creates 6 assessment sessions for the
-synthetic user `demo_user_001` (4 tasks per session, all 8 tasks covered) and
-prints `SIMULATED DEMO DATA` with a profile summary to the console.
+synthetic user `demo_user_001` (4 comparable tasks per session), records three
+opportunities per AI Collaboration Score component, and prints
+`SIMULATED DEMO DATA` with profile, Brain Twin, possible-trajectory, and score
+summaries to the console.
 
 ```
 uv run python scripts/demo_simulation.py --api-url http://localhost:8000
